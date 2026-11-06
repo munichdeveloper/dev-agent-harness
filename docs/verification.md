@@ -15,6 +15,40 @@ Commands: `npm run check`, `npm run test:coverage`, `npm run schemas`,
 `npm audit --audit-level=moderate`, checksum-verified `actionlint v1.7.12`.
 CI repeats checks on Node 22 and rejects generated-schema drift.
 
-Real GitHub evidence will be recorded after the dedicated test installation.
-No production target is used. OpenAI HTTPS transport is simulated unless a
-configured API secret is available; no billed live-call claim is made.
+## Verified results (6 November 2026)
+
+77 tests pass. Source coverage (excluding CLI) is 92.58% lines / 78.55% branches.
+Build, ESLint, generated-schema consistency, YAML validation, actionlint 1.7.12
+and `npm audit --audit-level=moderate` pass with zero reported vulnerabilities.
+[GitHub CI on the final runtime](https://github.com/munichdeveloper/dev-agent-harness/actions/runs/42204351031)
+repeated these checks on Node 22.
+
+The dedicated private fixture repository is
+[`munichdeveloper/dev-agent-harness-e2e-20261106`](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106).
+It contains no production application; evidence is accessible to its owner.
+Tested runtime pin: `a511e38fc0efa197014358de9d7829e1ca81beba` (earlier steps
+used the immediately preceding reviewed commits while building the MVP).
+
+| Acceptance behavior | Actual GitHub evidence |
+|---|---|
+| Two-file installation and least-privilege label bootstrap | [Bootstrap run](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106/actions/runs/42203004538) |
+| Supervised proposes approval before dispatch | [Manager run](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106/actions/runs/42203334040), [Issue #1](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106/issues/1) |
+| Exact maintainer approval dispatches an asynchronous worker | [Manager dispatch](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106/actions/runs/42203504311) |
+| Real test operation and durable result | [Worker run](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106/actions/runs/42203545251), [result comment](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106/issues/1#issuecomment-6682807755) |
+| Later manager consumes result, preserves documentation label | [Reconciliation](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106/actions/runs/42203745841): awaiting-pr, Issue remains open |
+| Unchanged repeat is mutation-free | [Repeat run](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106/actions/runs/42203844693): executed=0, comment count stays 8, one worker total |
+| Native closing reference and automatic Issue closure | [Merged fixture PR #2](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106/pull/2), [manager reconciliation](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106/actions/runs/42203933528): closed + done |
+| Advisory has no mutations | [Advisory run](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106/actions/runs/42204020209): Issue #3 remains ready, zero comments and zero new worker runs |
+| Autonomous needs no human approval | [Manager](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106/actions/runs/42204139431), [worker](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106/actions/runs/42204182943) for [Issue #3](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106/issues/3) |
+| Final runtime reconstructs earlier results | [Final runtime manager](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106/actions/runs/42204353445): Issue #3 becomes awaiting-pr |
+| Human reopening supersedes an old merge | [First run](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106/actions/runs/42204470974) repairs done to backlog; [second run](https://github.com/munichdeveloper/dev-agent-harness-e2e-20261106/actions/runs/42204593454) preserves open state and reconciles awaiting-pr |
+
+The fixture workflow is disabled after acceptance to prevent future scheduled
+test runs. Simulated integration tests cover interrupted dispatch, failed receipt
+persistence, uncertain outcomes, cancellation, timeouts, per-attempt approvals
+and terminal failure reconstruction after Actions history is removed.
+
+No OpenAI API secret was configured in the implementation repository. The real
+Responses adapter is implemented and transport-tested, but a paid live provider
+call was not performed. Organization-specific policies, other token types,
+branch rules and extreme API-rate/retention limits remain installation-specific.
