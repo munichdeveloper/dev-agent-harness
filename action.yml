@@ -46,6 +46,7 @@ runs:
         [[ "$TARGET" == "$GITHUB_WORKSPACE/target" ]]
         sudo adduser --system --home /home/codex-worker --shell /bin/bash --group codex-worker
         sudo chmod o+x /home/runner /home/runner/work
+        sudo chmod o+x /home/codex-worker
         sudo chown -R codex-worker:codex-worker "$TARGET"
         sudo chmod -R u+rwX "$TARGET"
         chmod o+rx "$RUN_DIRECTORY"
@@ -62,7 +63,6 @@ runs:
         permission-profile: ':workspace'
         safety-strategy: unprivileged-user
         codex-user: codex-worker
-        codex-home: /home/codex-worker/.codex
         working-directory: ${{ inputs.workspace }}
         prompt-file: ${{ steps.prepare.outputs.directory }}/prompt.txt
         output-schema-file: ${{ steps.prepare.outputs.directory }}/message.schema.json

@@ -16,6 +16,7 @@ HARNESS_REQUEST="$(node --input-type=module -e '
 node dist/coding-cli.js prepare
 sudo adduser --system --home /home/codex-worker --shell /bin/bash --group codex-worker
 sudo chmod o+x /home/runner /home/runner/work
+sudo chmod o+x /home/codex-worker
 sudo chown -R codex-worker:codex-worker "$HARNESS_WORKSPACE"
 chmod o+rx "$RUN_DIRECTORY"
 sudo install -d -o codex-worker -g codex-worker "$RUN_DIRECTORY/output"

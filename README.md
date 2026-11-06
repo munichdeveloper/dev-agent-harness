@@ -1,6 +1,6 @@
 # Dev Agent Harness
 
-Version **0.3.0**, test execution contract **2.0**, coding request/artifact **3.0**. Execute one explicitly supplied
+Version **0.3.2**, test execution contract **2.0**, coding request/artifact **3.0**. Execute one explicitly supplied
 worker request and return one structured result. This package has no task queue,
 project scope, planner, approvals, repository lifecycle, scheduling, retry policy
 or worker supervision. Those functions live in
