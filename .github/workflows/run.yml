@@ -36,6 +36,9 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run build
       - id: execute
-        env:
-          HARNESS_REQUEST: ${{ inputs.request }}
-        run: printf '%s' "$HARNESS_REQUEST" | node dist/cli.js run --github-output
+        run: |
+          node --input-type=module <<'REQUEST_SCRIPT'
+          import { writeFile } from 'node:fs/promises';
+          await writeFile(`${process.env.RUNNER_TEMP}/harness-request.json`, ${{ toJSON(inputs.request) }}, { flag: 'wx' });
+          REQUEST_SCRIPT
+          node dist/cli.js run --input "$RUNNER_TEMP/harness-request.json" --github-output
