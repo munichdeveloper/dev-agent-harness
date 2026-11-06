@@ -25,7 +25,11 @@ async function main(): Promise<void> {
   const github = new GitHubClient(repository, process.env.GITHUB_TOKEN ?? '');
   let config = loadConfig(await github.readConfig(values['config-path']!));
   if (values['dry-run']) config = configSchema.parse({ ...config, execution: { ...config.execution, dryRun: true } });
-  if (!config.harness.enabled) { console.log(JSON.stringify({ outcome: 'disabled' })); return; }
+  if (!config.harness.enabled) {
+    console.log(JSON.stringify({ outcome: 'disabled' }));
+    if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, '# Dev Agent Harness\n\nGlobally disabled. No repository changes.\n');
+    return;
+  }
   if (process.env.GITHUB_ACTIONS !== 'true' && !values['allow-local-writes'] && !config.execution.dryRun && config.autonomy.profile !== 'advisory') {
     throw new Error('Local mutations require --allow-local-writes and an exclusive operator session; prefer the serialized GitHub workflow');
   }

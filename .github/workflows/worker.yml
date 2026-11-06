@@ -14,6 +14,9 @@ on:
       issue-number:
         required: true
         type: string
+      dry-run:
+        type: boolean
+        default: false
 permissions: {}
 jobs:
   test-worker:
@@ -44,5 +47,9 @@ jobs:
           HARNESS_CONFIG: ${{ inputs.config-path }}
           HARNESS_EXECUTION_ID: ${{ inputs.execution-id }}
           HARNESS_ISSUE_NUMBER: ${{ inputs.issue-number }}
-        run: node dist/cli.js worker --config-path "$HARNESS_CONFIG"
+          HARNESS_DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          args=()
+          if [[ "$HARNESS_DRY_RUN" == true ]]; then args+=(--dry-run); fi
+          node dist/cli.js worker --config-path "$HARNESS_CONFIG" "${args[@]}"
 

@@ -160,4 +160,13 @@ describe('manager integration with simulated GitHub responses', () => {
     report = await run(); const secondRetry = report.decisions.find(d => d.action.kind === 'retry_worker')!;
     expect(secondRetry.decision.outcome).toBe('approval'); expect(secondRetry.decision.actionId).not.toBe(firstRetry.decision.actionId); expect(github.dispatches).toBe(2);
   });
+  it('preserves an explicit human block without dependencies', async () => {
+    const { github, run } = setup(); github.state.issues.push(issue(1, ['harness:managed', 'harness:blocked']));
+    const report = await run(); expect(github.dispatches).toBe(0); expect(report.blockers.join()).toContain('explicitly marked blocked');
+  });
+  it('unblocks a previously underspecified task after its text is fixed', async () => {
+    const { github, run } = setup(); const task = issue(); task.body = 'Missing specification'; github.state.issues.push(task);
+    await run(); expect(github.state.issues[0]!.labels).toContain('harness:blocked');
+    github.state.issues[0]!.body = issue().body; await run(); expect(github.dispatches).toBe(1);
+  });
 });

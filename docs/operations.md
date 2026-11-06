@@ -7,6 +7,9 @@ Actions for immediate termination. Manual dry_run previews one manager run.
 
 Keep the wrapper filename/config and `Harness worker <executionId>` run name
 stable. Intents/results must remain in Issue comments; artifacts are optional.
+An explicit blocked label without dependencies stays blocked. Clear that label to
+resume, or revise text after a manager-recorded specification block. Dependency
+blocks clear after all declared dependencies close.
 
 | Failure | Recovery |
 |---|---|

@@ -22,6 +22,8 @@
 - Approvals use exact full-comment commands and current write/maintain/admin
   permission. IDs bind task text, complete config, payload and retry attempt.
   A ready label or generated approve_task proposal never grants worker permission.
+  Workers recheck configuration identity and current approval before starting;
+  queued work is cancelled if authorization changed after delegation.
 - Caps, global disable and dry run apply in all profiles. Advisory prohibits all
   mutations. Unsupported actions cannot be enabled through overrides.
 - Logs omit secrets, issue text, raw request errors and provider response bodies.

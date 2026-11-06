@@ -1,5 +1,5 @@
 import type { Config } from '../config/index.js';
-import type { Issue, Snapshot, Status, WorkflowRun } from '../types.js';
+import { actionSchema, type Issue, type Snapshot, type Status, type WorkflowRun } from '../types.js';
 import type { WorkerInput, WorkerResult } from '../workers/contract.js';
 import { decodeEvent, type HarnessEvent } from './events.js';
 import { acceptanceCriteria, dependencies, issueStatus } from './lifecycle.js';
@@ -42,9 +42,20 @@ export function reconstruct(snapshot: Snapshot, config: Config, now = new Date()
     const currentExecutions = executions.filter(e => e.input.taskVersion === version);
     const latest = currentExecutions.sort((a, b) => a.attempt - b.attempt).at(-1);
     const criteria = acceptanceCriteria(issue.body);
-    const unresolved = dependencies(issue.body).filter(n => snapshot.dependencyStates.get(n) !== true);
+    const deps = dependencies(issue.body);
+    const unresolved = deps.filter(n => snapshot.dependencyStates.get(n) !== true);
+    const previousBlock = events.flatMap(e => {
+      if (e.data.type !== 'decision' || e.data.outcome !== 'executed') return [];
+      try {
+        const a = actionSchema.safeParse(JSON.parse(e.data.action));
+        return a.success && a.data.kind === 'transition' && a.data.status === 'blocked' ? [a.data] : [];
+      } catch { return []; }
+    }).at(-1);
+    const explicitBlock = issueStatus(issue) === 'blocked' && deps.length === 0 &&
+      (!previousBlock || previousBlock.taskVersion === version);
     const blockReason = unresolved.length ? `Unresolved dependencies: ${unresolved.map(n => `#${n}`).join(', ')}`
-      : !criteria.length ? 'Missing Acceptance criteria section' : undefined;
+      : !criteria.length ? 'Missing Acceptance criteria section'
+      : explicitBlock ? 'Issue explicitly marked blocked; revise the task or clear the blocked label' : undefined;
     const linked = snapshot.prs.filter(p => p.closingIssues.includes(issue.number) || p.referencedIssues.includes(issue.number));
     const hasOpenPR = linked.some(p => p.state === 'open');
     const hasClosingMerge = linked.some(p => p.merged && p.closingIssues.includes(issue.number) &&

@@ -103,8 +103,16 @@ export class Manager {
     let tasks = reconstruct(snapshot, this.config, this.now());
     report.tasks = tasks.length;
     for (const t of tasks) {
-      if (t.blockReason) report.blockers.push(`#${t.issue.number}: ${t.blockReason}`);
-      if (t.executions.some(e => e.ambiguous)) report.blockers.push(`#${t.issue.number}: dispatch outcome uncertain; inspect workflow runs and resolve explicitly`);
+      if (t.blockReason) {
+        report.blockers.push(`#${t.issue.number}: ${t.blockReason}`);
+        report.nextSteps.push(`#${t.issue.number}: complete dependencies and acceptance criteria, then run the manager again`);
+      }
+      if (t.executions.some(e => e.ambiguous)) {
+        report.blockers.push(`#${t.issue.number}: dispatch outcome uncertain; inspect workflow runs and resolve explicitly`);
+        report.nextSteps.push(`#${t.issue.number}: inspect actual Actions runs before manually resolving the original execution`);
+      }
+      if (t.latest?.result && ['blocked', 'needs_approval'].includes(t.latest.result.status)) report.blockers.push(`#${t.issue.number}: worker reports ${t.latest.result.status}; revise task or provide missing input`);
+      if (t.latest?.result && ['failed', 'cancelled'].includes(t.latest.result.status) && t.latest.attempt >= this.config.execution.maxRetries) report.blockers.push(`#${t.issue.number}: retry budget exhausted`);
     }
     const entries: { action: Action; source: 'reconcile' | 'planner' | 'worker' }[] = reconciliationPlan(tasks, this.config).map(action => ({ action, source: 'reconcile' }));
     const eligible = tasks.filter(t => t.issue.state === 'open' && !t.blocked && !t.hasClosingMerge && !t.executions.some(e => e.active));
