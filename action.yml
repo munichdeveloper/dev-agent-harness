@@ -74,18 +74,7 @@ runs:
         HARNESS_EXECUTION_ID: ${{ inputs.execution-id }}
         HARNESS_WORKSPACE: ${{ inputs.workspace }}
         RUN_DIRECTORY: ${{ steps.prepare.outputs.directory }}
-      run: |
-        sudo pkill -KILL -u codex-worker || true
-        # Even Git diff/filter configuration is untrusted after agent execution.
-        # Collection runs as the same restricted account with an empty environment.
-        sudo -u codex-worker env -i PATH="$PATH" RUNNER_TEMP="$RUNNER_TEMP" \
-          HARNESS_EXECUTION_ID="$HARNESS_EXECUTION_ID" HARNESS_WORKSPACE="$HARNESS_WORKSPACE" \
-          setpriv --no-new-privs --bounding-set=-all --inh-caps=-all --ambient-caps=-all \
-          node "$GITHUB_ACTION_PATH/dist/coding-cli.js" collect
-        sudo pkill -KILL -u codex-worker || true
-        [[ -f "$RUN_DIRECTORY/output/artifact.json" && ! -L "$RUN_DIRECTORY/output/artifact.json" ]]
-        [[ "$(wc -c < "$RUN_DIRECTORY/output/artifact.json")" -le 7000000 ]]
-        cp "$RUN_DIRECTORY/output/artifact.json" "$RUN_DIRECTORY/artifact.json"
+      run: bash "$GITHUB_ACTION_PATH/scripts/collect-coding.sh"
     - name: Stop per-run processes
       if: always()
       shell: bash
