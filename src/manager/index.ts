@@ -40,8 +40,15 @@ export class Manager {
     if (taskVersion(live) !== action.taskVersion || !live.labels.includes(managedLabel)) throw new Error('Task changed during execution; deferred to next run');
     switch (action.kind) {
       case 'transition': {
+        let journaled = false;
+        for (const execution of task.executions) {
+          if (execution.result && !task.events.some(e => e.data.type === 'result' && e.data.result.executionId === execution.input.executionId)) {
+            await this.event(live.number, `result:${execution.input.executionId}`, { type: 'result', result: execution.result });
+            journaled = true;
+          }
+        }
         const labels = withStatus(live, action.status!);
-        if ([...live.labels].sort().join('\0') === [...labels].sort().join('\0')) return false;
+        if ([...live.labels].sort().join('\0') === [...labels].sort().join('\0')) return journaled;
         await this.github.updateIssue(live.number, { labels }); return true;
       }
       case 'close_issue':

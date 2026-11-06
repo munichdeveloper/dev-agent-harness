@@ -169,4 +169,12 @@ describe('manager integration with simulated GitHub responses', () => {
     await run(); expect(github.state.issues[0]!.labels).toContain('harness:blocked');
     github.state.issues[0]!.body = issue().body; await run(); expect(github.dispatches).toBe(1);
   });
+  it('durably records a workflow-only terminal failure before Actions retention expires', async () => {
+    const { github, cfg, run } = setup(); cfg.execution.maxRetries = 0; github.state.issues.push(issue()); github.failReceipt = true; await run(); github.failReceipt = false;
+    github.state.runs[0]!.status = 'completed'; github.state.runs[0]!.conclusion = 'cancelled'; await run();
+    expect(github.state.issues[0]!.labels).toContain('harness:failed');
+    github.state.runs = []; const report = await run();
+    expect(reconstruct(github.state, cfg, clock)[0]!.latest!.result?.status).toBe('cancelled');
+    expect(report.blockers.join()).not.toContain('uncertain'); expect(github.dispatches).toBe(1);
+  });
 });

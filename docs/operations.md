@@ -25,6 +25,10 @@ blocks clear after all declared dependencies close.
 | Native Issue closed | Done label; never automatically reopen |
 | LLM failure/invalid output | Deterministic reconciliation continues |
 
+Completed runs without a worker callback are recorded as durable terminal
+results by an allowed manager transition, so later Actions-run retention expiry
+does not turn a known failure into an uncertain dispatch.
+
 ## Uncertain dispatch
 
 Dispatch and comment persistence are not a transaction; GitHub provides no

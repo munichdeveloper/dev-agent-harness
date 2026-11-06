@@ -7,7 +7,7 @@ export const priorityLabels = ['harness:priority-high', 'harness:priority-normal
 export const allLabels = [managedLabel, ...lifecycleLabels, ...priorityLabels];
 const transitions: Record<Status, readonly Status[]> = {
   backlog: ['ready', 'running', 'failed', 'awaiting-pr', 'blocked', 'awaiting-approval', 'done'],
-  ready: ['running', 'blocked', 'awaiting-approval', 'awaiting-pr', 'done', 'backlog'],
+  ready: ['running', 'failed', 'blocked', 'awaiting-approval', 'awaiting-pr', 'done', 'backlog'],
   running: ['awaiting-pr', 'failed', 'blocked', 'awaiting-approval', 'done'],
   'awaiting-pr': ['running', 'failed', 'blocked', 'done', 'backlog', 'ready', 'awaiting-approval'],
   'awaiting-approval': ['ready', 'running', 'blocked', 'backlog', 'done', 'awaiting-pr', 'failed'],

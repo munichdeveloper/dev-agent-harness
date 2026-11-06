@@ -10,7 +10,8 @@ export function reconciliationPlan(tasks: Task[], config: Config): Action[] {
     if (t.executions.some(e => e.active && e.timedOut && e.run)) actions.push(proposal(t, 'cancel_worker', 'Worker exceeded its configured time limit'));
     if (t.issue.state === 'open' && t.hasClosingMerge && !t.executions.some(e => e.active)) {
       actions.push(proposal(t, 'close_issue', 'Verified native closing reference to a merged pull request'));
-    } else if (!t.issue.labels.includes(`harness:${t.desiredStatus}`) || t.issue.labels.filter(l => lifecycleLabels.includes(l)).length !== 1) {
+    } else if (!t.issue.labels.includes(`harness:${t.desiredStatus}`) || t.issue.labels.filter(l => lifecycleLabels.includes(l)).length !== 1 ||
+      t.executions.some(e => e.result && !t.events.some(event => event.data.type === 'result' && event.data.result.executionId === e.input.executionId))) {
       actions.push(proposal(t, 'transition', 'Reconcile lifecycle with GitHub facts', { status: t.desiredStatus }));
     }
     if (t.issue.state === 'open' && !t.blocked && !t.hasClosingMerge && !t.hasOpenPR && t.latest?.result &&

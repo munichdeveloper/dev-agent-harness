@@ -62,12 +62,12 @@ export function reconstruct(snapshot: Snapshot, config: Config, now = new Date()
       (!issue.reopenedAt || (!!p.mergedAt && p.mergedAt > issue.reopenedAt)));
     let desiredStatus: Status = issueStatus(issue) ?? 'backlog';
     if (issue.state === 'closed') desiredStatus = 'done';
+    else if (issueStatus(issue) === 'done') desiredStatus = 'backlog';
     else if (executions.some(e => e.active)) desiredStatus = executions.some(e => e.ambiguous) ? 'blocked' : 'running';
     else if (hasClosingMerge) desiredStatus = 'done';
     else if (blockReason) desiredStatus = 'blocked';
     else if (latest?.result) desiredStatus = ({ success: 'awaiting-pr', failed: 'failed', cancelled: 'failed', blocked: 'blocked', needs_approval: 'awaiting-approval' } as const)[latest.result.status];
     else if (hasOpenPR) desiredStatus = 'awaiting-pr';
-    else if (desiredStatus === 'done') desiredStatus = 'backlog'; // Human reopening is authoritative.
     else if (['backlog', 'blocked', 'awaiting-pr'].includes(desiredStatus)) desiredStatus = 'ready';
     return { issue, version, status: issueStatus(issue) ?? 'backlog', desiredStatus, events, executions, latest,
       blocked: !!blockReason, blockReason, hasOpenPR, hasClosingMerge, criteria };
