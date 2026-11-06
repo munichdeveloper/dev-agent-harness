@@ -1,4 +1,5 @@
-import { appendFile, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, writeFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { execute } from './runtime.js';
@@ -9,7 +10,16 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   } });
   if (positionals.length !== 1 || positionals[0] !== 'run') throw new Error('Expected run command');
   let source = '';
-  if (values.input) source = await readFile(values.input, 'utf8');
+  if (values.input) {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of createReadStream(values.input)) {
+      size += chunk.length;
+      if (size > 512000) throw new Error('Input too large');
+      chunks.push(chunk);
+    }
+    source = Buffer.concat(chunks).toString('utf8');
+  }
   else {
     process.stdin.setEncoding('utf8');
     for await (const chunk of process.stdin) {
