@@ -21,6 +21,8 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run check
       - run: npm run test:coverage
+      - name: Exercise restricted Linux artifact collection without API credentials
+        run: bash scripts/test-coding-account.sh
       - name: Verify generated contracts are committed
         run: |
           npm run schemas
