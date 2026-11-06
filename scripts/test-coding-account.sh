@@ -19,7 +19,7 @@ sudo chmod o+x /home/runner /home/runner/work
 sudo chown -R codex-worker:codex-worker "$HARNESS_WORKSPACE"
 chmod o+rx "$RUN_DIRECTORY"
 sudo install -d -o codex-worker -g codex-worker "$RUN_DIRECTORY/output"
-printf '{"status":"success","summary":"Fixture collected"}\n' > "$RUN_DIRECTORY/output/message.json"
+printf '{"status":"success","summary":"Fixture collected"}\n' | sudo -u codex-worker tee "$RUN_DIRECTORY/output/message.json" >/dev/null
 sudo -u codex-worker bash -c 'echo fixture > "$1/new.txt"' _ "$HARNESS_WORKSPACE"
 bash scripts/collect-coding.sh
 node --input-type=module -e '
