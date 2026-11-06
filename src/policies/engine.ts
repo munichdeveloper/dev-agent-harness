@@ -22,6 +22,10 @@ export function evaluate(action: Action, ctx: PolicyContext): Decision {
   const decide = (outcome: Decision['outcome'], reason: string): Decision => ({ outcome, reason, actionId: id });
   const deny = (reason: string) => decide('deny', reason);
   if (!config.harness.enabled) return deny('Harness globally disabled');
+  if ((action.kind !== 'transition' && action.status !== null) ||
+      (action.kind !== 'prioritize' && action.priority !== null) ||
+      (action.kind !== 'create_followup' && action.followup !== null) ||
+      (!['start_worker', 'retry_worker'].includes(action.kind) && action.attempt !== null)) return deny('Action contains fields belonging to a different operation');
   if (config.autonomy.profile === 'advisory') return deny('Advisory profile prohibits repository changes');
   if (action.kind === 'merge_pr' || action.kind === 'expand_scope') return deny(`Action ${action.kind} is not implemented in v0.1; scope permission applies to follow-ups`);
   if (!task.issue.labels.includes('harness:managed')) return deny('Issue is not explicitly managed');
@@ -61,7 +65,7 @@ export function evaluate(action: Action, ctx: PolicyContext): Decision {
     }
   }
   if (action.kind === 'prioritize' && !action.priority) return deny('Priority is required');
-  if (action.kind === 'approve_task' && (task.blocked || task.executions.some(e => e.active))) return deny('Task cannot be made ready');
+  if (action.kind === 'approve_task' && (task.blocked || task.hasOpenPR || task.hasClosingMerge || task.latest?.result?.status === 'success' || task.executions.some(e => e.active))) return deny('Task cannot be made ready');
   const rule = permission(config, action.kind);
   if (rule === 'deny') return deny(`Policy forbids ${action.kind}`);
   if (rule === 'approval' && !ctx.approved) return decide('approval', 'Maintainer approval required for this exact action and task version');

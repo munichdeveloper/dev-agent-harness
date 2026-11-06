@@ -51,4 +51,8 @@ describe('independent autonomy policy engine', () => {
     const first = configSchema.parse({ version: 1, harness: { scope: 'one' } }); first.workers.test.operation = 'fail';
     expect(configSchema.parse({ version: 1, harness: { scope: 'two' } }).workers.test.operation).toBe('sha256');
   });
+  it('rejects inapplicable fields instead of silently altering concrete action identity', () => {
+    const f = fixture(); const action = proposal(f.task, 'start_worker', 'start', { status: 'ready' });
+    expect(evaluate(action, { config: f.cfg, ...f, source: 'planner', approved: true }).outcome).toBe('deny');
+  });
 });
