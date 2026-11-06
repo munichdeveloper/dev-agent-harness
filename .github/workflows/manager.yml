@@ -1,0 +1,79 @@
+name: Reusable Harness Manager
+on:
+  workflow_call:
+    inputs:
+      harness-ref:
+        description: Immutable harness commit SHA; match the caller uses pin
+        required: true
+        type: string
+      mode:
+        type: string
+        default: manager
+      config-path:
+        type: string
+        default: .github/harness.yml
+      execution-id:
+        type: string
+        default: ''
+      issue-number:
+        type: string
+        default: ''
+      dry-run:
+        type: boolean
+        default: false
+    secrets:
+      OPENAI_API_KEY:
+        required: false
+permissions: {}
+jobs:
+  manager:
+    if: inputs.mode != 'worker' && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+      actions: write
+    steps:
+      - name: Validate immutable runtime and command
+        env:
+          HARNESS_REF: ${{ inputs.harness-ref }}
+          HARNESS_MODE: ${{ inputs.mode }}
+        run: |
+          [[ "$HARNESS_REF" =~ ^[a-f0-9]{40}$ ]] || exit 1
+          [[ "$HARNESS_MODE" == manager || "$HARNESS_MODE" == bootstrap ]] || exit 1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: munichdeveloper/dev-agent-harness
+          ref: ${{ inputs.harness-ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - name: Run harness against caller repository
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          HARNESS_MODE: ${{ inputs.mode }}
+          HARNESS_CONFIG: ${{ inputs.config-path }}
+          HARNESS_DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          args=()
+          if [[ "$HARNESS_DRY_RUN" == true ]]; then args+=(--dry-run); fi
+          node dist/cli.js "$HARNESS_MODE" --config-path "$HARNESS_CONFIG" "${args[@]}"
+  worker:
+    if: inputs.mode == 'worker' && github.ref_name == github.event.repository.default_branch
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+    uses: ./.github/workflows/worker.yml
+    with:
+      harness-ref: ${{ inputs.harness-ref }}
+      config-path: ${{ inputs.config-path }}
+      execution-id: ${{ inputs.execution-id }}
+      issue-number: ${{ inputs.issue-number }}
+

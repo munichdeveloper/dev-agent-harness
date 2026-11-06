@@ -1,0 +1,48 @@
+name: Reusable Harness Test Worker
+on:
+  workflow_call:
+    inputs:
+      harness-ref:
+        required: true
+        type: string
+      config-path:
+        type: string
+        default: .github/harness.yml
+      execution-id:
+        required: true
+        type: string
+      issue-number:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  test-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+    steps:
+      - name: Validate immutable runtime
+        env:
+          HARNESS_REF: ${{ inputs.harness-ref }}
+        run: '[[ "$HARNESS_REF" =~ ^[a-f0-9]{40}$ ]]'
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: munichdeveloper/dev-agent-harness
+          ref: ${{ inputs.harness-ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - name: Validate intent and publish durable result
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HARNESS_CONFIG: ${{ inputs.config-path }}
+          HARNESS_EXECUTION_ID: ${{ inputs.execution-id }}
+          HARNESS_ISSUE_NUMBER: ${{ inputs.issue-number }}
+        run: node dist/cli.js worker --config-path "$HARNESS_CONFIG"
+
