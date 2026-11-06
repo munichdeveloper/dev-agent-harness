@@ -1,32 +1,24 @@
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { spawn } from 'node:child_process';
+import { expect, it } from 'vitest';
 
-const github = vi.hoisted(() => ({ readConfig: vi.fn(), bootstrap: vi.fn() }));
-vi.mock('../src/github/client.js', () => ({ GitHubClient: class {
-  readConfig = github.readConfig;
-  bootstrap = github.bootstrap;
-} }));
-import { main } from '../src/cli.js';
-beforeEach(() => {
-  vi.stubEnv('GITHUB_ACTIONS', 'false');
-  vi.stubEnv('GITHUB_STEP_SUMMARY', '');
-  vi.spyOn(console, 'log').mockImplementation(() => {});
-  github.readConfig.mockReset(); github.bootstrap.mockReset();
+function run(input: string, args = ['run']): Promise<{ code: number | null; out: string; err: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['dist/cli.js', ...args], { windowsHide: true });
+    let out = '', err = '';
+    child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
+    child.stdout.on('data', chunk => { out += chunk; }); child.stderr.on('data', chunk => { err += chunk; });
+    child.on('error', reject); child.on('close', code => resolve({ code, out, err }));
+    child.stdin.on('error', () => {}); child.stdin.end(input);
+  });
+}
+const request = { contractVersion: '2.0', executionId: 'a'.repeat(32), worker: 'test', task: { id: 'fixture', version: 'b'.repeat(64),
+  description: 'Grüße 👋', acceptanceCriteria: ['Digest returned'], contextReferences: [] }, allowedActions: ['run_test_operation'],
+  limits: { timeoutMs: 1000, maxOutputBytes: 16000 }, operation: 'sha256' };
+it('returns one machine-readable run result through the standalone CLI', async () => {
+  const result = await run(JSON.stringify(request)); expect(result.code).toBe(0);
+  expect(JSON.parse(result.out).status).toBe('success'); expect(result.err).toBe('');
 });
-afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
-
-it.each([false, true])('advisory bootstrap never writes, even with local-write opt-in=%s', async optIn => {
-  github.readConfig.mockResolvedValue('version: 1\nharness:\n  scope: test\nautonomy:\n  profile: advisory');
-  await main(['bootstrap', '--repository', 'owner/target', ...(optIn ? ['--allow-local-writes'] : [])]);
-  expect(github.bootstrap).not.toHaveBeenCalled();
-  expect(console.log).toHaveBeenCalledWith('Mutation-free mode: bootstrap skipped');
+it.each(['invalid-json-secret', JSON.stringify({ ...request, contractVersion: '1.0' }), 'x'.repeat(512001)])('rejects invalid input without echoing it', async input => {
+  const result = await run(input); expect(result.code).toBe(2); expect(result.out).toBe(''); expect(result.err).not.toContain(input.slice(0, 50));
 });
-it('dry-run bootstrap never writes in a mutating profile', async () => {
-  github.readConfig.mockResolvedValue('version: 1\nharness:\n  scope: test');
-  await main(['bootstrap', '--repository', 'owner/target', '--dry-run']);
-  expect(github.bootstrap).not.toHaveBeenCalled();
-});
-it('normal local bootstrap requires the write opt-in', async () => {
-  github.readConfig.mockResolvedValue('version: 1\nharness:\n  scope: test');
-  await expect(main(['bootstrap', '--repository', 'owner/target'])).rejects.toThrow('Local mutations require');
-  expect(github.bootstrap).not.toHaveBeenCalled();
-});
+it('rejects removed orchestration commands', async () => { expect((await run('{}', ['manager'])).code).toBe(2); });

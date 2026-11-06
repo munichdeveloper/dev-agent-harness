@@ -1,0 +1,6 @@
+{
+  "contractVersion": "2.0", "executionId": "0123456789abcdef0123456789abcdef", "worker": "test",
+  "task": { "id": "example-task", "version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "description": "Validate this task and return its SHA-256 digest.", "acceptanceCriteria": ["A digest is returned"], "contextReferences": [] },
+  "allowedActions": ["run_test_operation"], "limits": { "timeoutMs": 30000, "maxOutputBytes": 16000 }, "operation": "sha256"
+}

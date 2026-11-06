@@ -1,0 +1,41 @@
+name: Execute one worker run
+on:
+  workflow_call:
+    inputs:
+      harness-ref:
+        type: string
+        required: true
+      request:
+        type: string
+        required: true
+    outputs:
+      result:
+        value: ${{ jobs.run.outputs.result }}
+permissions: {}
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 31
+    permissions:
+      contents: read
+    outputs:
+      result: ${{ steps.execute.outputs.result }}
+    steps:
+      - name: Validate runtime pin
+        env:
+          HARNESS_REF: ${{ inputs.harness-ref }}
+        run: '[[ "$HARNESS_REF" =~ ^[a-f0-9]{40}$ ]]'
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: munichdeveloper/dev-agent-harness
+          ref: ${{ inputs.harness-ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - id: execute
+        env:
+          HARNESS_REQUEST: ${{ inputs.request }}
+        run: printf '%s' "$HARNESS_REQUEST" | node dist/cli.js run --github-output
