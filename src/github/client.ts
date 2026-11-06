@@ -41,7 +41,7 @@ export class GitHubClient implements GitHubPort {
       if ((e.event !== 'labeled' && e.event !== 'unlabeled') || !('label' in e) || e.label?.name !== 'harness:blocked' ||
           !('id' in e) || typeof e.id !== 'number' || !('created_at' in e) || typeof e.created_at !== 'string') return [];
       return [{ id: e.id, event: e.event as 'labeled' | 'unlabeled', actor: 'actor' in e ? e.actor?.login ?? '' : '', createdAt: e.created_at }];
-    }).sort((a, b) => a.id - b.id);
+    });
     return issue;
   }
   async comments(number: number): Promise<Comment[]> {
