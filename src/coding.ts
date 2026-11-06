@@ -54,14 +54,14 @@ export async function collectCodingArtifact(input: unknown, directory: string, m
     let content: string | null = null;
     let mode: '100644' | '100755' = '100644';
     try {
-      const resolved = await realpath(target);
-      if (!resolved.startsWith(cwd + sep)) throw new Error('Artifact path escapes workspace');
       // Check every component; resolving a symlink inside the checkout is also forbidden.
       let parent = cwd;
       for (const component of path.split('/')) {
         parent = resolve(parent, component);
         if ((await lstat(parent)).isSymbolicLink()) throw new Error('Symlink artifact forbidden');
       }
+      const resolved = await realpath(target);
+      if (!resolved.startsWith(cwd + sep)) throw new Error('Artifact path escapes workspace');
       const stat = await lstat(target);
       if (!stat.isFile() || stat.size > request.limits.maxPatchBytes - total) throw new Error('Invalid or oversized artifact');
       const bytes = await readFile(target);

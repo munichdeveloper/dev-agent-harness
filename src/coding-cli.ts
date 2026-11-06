@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import { codingMessageSchema, codingPrompt, codingRequestSchema, collectCodingArtifact } from './coding.js';
@@ -16,6 +16,7 @@ async function main(): Promise<void> {
     await appendFile(process.env.GITHUB_OUTPUT!, `directory=${directory}\nmodel=${request.model}\neffort=${request.effort}\ntimeout=${request.limits.timeoutMinutes}\n`);
   } else if (command === 'collect') {
     const request = JSON.parse(await readFile(resolve(directory, 'request.json'), 'utf8'));
+    if ((await stat(resolve(directory, 'output/message.json'))).size > 16000) throw new Error('Message too large');
     const message = JSON.parse(await readFile(resolve(directory, 'output/message.json'), 'utf8'));
     const result = await collectCodingArtifact(request, process.env.HARNESS_WORKSPACE!, message);
     await writeFile(resolve(directory, 'output/artifact.json'), JSON.stringify(result));

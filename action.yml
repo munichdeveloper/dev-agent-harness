@@ -84,6 +84,7 @@ runs:
           node "$GITHUB_ACTION_PATH/dist/coding-cli.js" collect
         sudo pkill -KILL -u codex-worker || true
         [[ -f "$RUN_DIRECTORY/output/artifact.json" && ! -L "$RUN_DIRECTORY/output/artifact.json" ]]
+        [[ "$(wc -c < "$RUN_DIRECTORY/output/artifact.json")" -le 7000000 ]]
         cp "$RUN_DIRECTORY/output/artifact.json" "$RUN_DIRECTORY/artifact.json"
     - name: Stop per-run processes
       if: always()
