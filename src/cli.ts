@@ -1,0 +1,61 @@
+import { appendFile, readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { parseArgs } from 'node:util';
+import { configSchema, loadConfig } from './config/index.js';
+import { GitHubClient } from './github/client.js';
+import { Manager } from './manager/index.js';
+import { MockPlanner, OpenAIPlanner } from './llm/provider.js';
+import { summary } from './manager/report.js';
+import { runTestWorker } from './workers/test-worker.js';
+
+const { values, positionals } = parseArgs({ allowPositionals: true, options: {
+  repository: { type: 'string' }, 'config-path': { type: 'string', default: '.github/harness.yml' },
+  file: { type: 'string' }, 'dry-run': { type: 'boolean', default: false },
+  'allow-local-writes': { type: 'boolean', default: false }, issue: { type: 'string' }, execution: { type: 'string' }
+} });
+async function main(): Promise<void> {
+  const command = positionals[0] ?? 'manager';
+  if (command === 'validate') {
+    if (!values.file) throw new Error('validate requires --file');
+    loadConfig(await readFile(values.file, 'utf8'));
+    console.log('Configuration valid'); return;
+  }
+  if (!['manager', 'worker', 'bootstrap'].includes(command)) throw new Error('Supported commands: manager, worker, bootstrap, validate');
+  const repository = values.repository ?? process.env.GITHUB_REPOSITORY ?? '';
+  const github = new GitHubClient(repository, process.env.GITHUB_TOKEN ?? '');
+  let config = loadConfig(await github.readConfig(values['config-path']!));
+  if (values['dry-run']) config = configSchema.parse({ ...config, execution: { ...config.execution, dryRun: true } });
+  if (!config.harness.enabled) { console.log(JSON.stringify({ outcome: 'disabled' })); return; }
+  if (process.env.GITHUB_ACTIONS !== 'true' && !values['allow-local-writes'] && !config.execution.dryRun && config.autonomy.profile !== 'advisory') {
+    throw new Error('Local mutations require --allow-local-writes and an exclusive operator session; prefer the serialized GitHub workflow');
+  }
+  const correlationId = process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT ?? '1'}` : randomUUID();
+  const timer = setTimeout(() => { console.error(JSON.stringify({ correlationId, error: 'Hard execution time limit reached; next run will recover durable state' })); process.exit(1); }, (command === 'worker' ? config.execution.workerTimeoutMinutes : config.manager.timeoutMinutes) * 60000);
+  timer.unref();
+  try {
+    if (command === 'bootstrap') {
+      if (config.execution.dryRun) { console.log('Dry run: bootstrap skipped'); return; }
+      console.log(JSON.stringify({ correlationId, createdLabels: await github.bootstrap() })); return;
+    }
+    if (command === 'worker') {
+      const issue = values.issue ?? process.env.HARNESS_ISSUE_NUMBER ?? '';
+      const id = values.execution ?? process.env.HARNESS_EXECUTION_ID ?? '';
+      if (!/^[1-9]\d*$/.test(issue) || !/^[a-f0-9]{32}$/.test(id)) throw new Error('Invalid worker issue or execution ID');
+      const result = await runTestWorker(github, config, Number(issue), id, correlationId);
+      console.log(JSON.stringify({ correlationId, executionId: result.executionId, status: result.status })); return;
+    }
+    const planner = config.llm.provider === 'mock' ? new MockPlanner() : new OpenAIPlanner(process.env.OPENAI_API_KEY ?? '');
+    const report = await new Manager(github, config, planner, { correlationId }).run();
+    if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, summary(report));
+    console.log(JSON.stringify({ correlationId, outcome: report.outcome, tasks: report.tasks,
+      executed: report.decisions.filter(d => d.executed).length, errors: report.errors, nextSteps: report.nextSteps }));
+    if (report.errors.length) process.exitCode = 1;
+  } finally { clearTimeout(timer); }
+}
+main().catch(error => {
+  // Config errors are safe; API/request objects are deliberately never printed.
+  const message = error instanceof Error ? error.message : '';
+  const safe = /^(Invalid harness configuration|Invalid YAML|Supported commands|validate requires|Local mutations|Invalid worker|OPENAI_API_KEY|GITHUB_TOKEN|Repository must|Configuration must)/.test(message)
+    ? message : 'Harness failed. Check repository access, contents:read, issues:write, pull-requests:read and actions:write permissions and installed default-branch workflow.';
+  console.error(JSON.stringify({ error: safe })); process.exitCode = 1;
+});
