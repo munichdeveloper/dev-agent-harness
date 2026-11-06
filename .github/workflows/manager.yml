@@ -77,4 +77,3 @@ jobs:
       execution-id: ${{ inputs.execution-id }}
       issue-number: ${{ inputs.issue-number }}
       dry-run: ${{ inputs.dry-run }}
-
