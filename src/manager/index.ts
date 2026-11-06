@@ -123,7 +123,7 @@ export class Manager {
     for (const t of tasks) {
       if (t.blockReason) {
         report.blockers.push(`#${t.issue.number}: ${t.blockReason}`);
-        report.nextSteps.push(`#${t.issue.number}: complete dependencies and acceptance criteria, then run the manager again`);
+        report.nextSteps.push(`#${t.issue.number}: ${t.blockReason}; resolve this block and run the manager again`);
       }
       if (t.executions.some(e => e.ambiguous)) {
         report.blockers.push(`#${t.issue.number}: dispatch outcome uncertain; inspect workflow runs and resolve explicitly`);
