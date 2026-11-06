@@ -1,0 +1,96 @@
+name: Codex single-run Harness
+description: Execute one coding request; the caller owns authorization and publication
+inputs:
+  request:
+    description: Validated generic coding request v3.0
+    required: true
+  execution-id:
+    description: Correlation identifier
+    required: true
+  workspace:
+    description: Absolute path to target checkout without persisted credentials
+    required: true
+  openai-api-key:
+    description: OpenAI credential supplied only to the official API proxy
+    required: true
+outputs:
+  artifact:
+    description: Single-run result and bounded file manifest
+    value: ${{ steps.prepare.outputs.directory }}/artifact.json
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+      with:
+        node-version: '22'
+    - shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        npm ci --ignore-scripts
+        npm run build
+    - id: prepare
+      shell: bash
+      env:
+        HARNESS_REQUEST: ${{ inputs.request }}
+        HARNESS_EXECUTION_ID: ${{ inputs.execution-id }}
+      run: node "$GITHUB_ACTION_PATH/dist/coding-cli.js" prepare
+    - name: Create isolated coding account
+      id: account
+      shell: bash
+      env:
+        TARGET: ${{ inputs.workspace }}
+        RUN_DIRECTORY: ${{ steps.prepare.outputs.directory }}
+        TIMEOUT: ${{ steps.prepare.outputs.timeout }}
+      run: |
+        [[ "$RUNNER_OS" == Linux ]]
+        [[ "$TARGET" == "$GITHUB_WORKSPACE/target" ]]
+        sudo adduser --system --home /home/codex-worker --shell /bin/bash --group codex-worker
+        sudo chmod o+x /home/runner /home/runner/work
+        sudo chown -R codex-worker:codex-worker "$TARGET"
+        sudo chmod -R u+rwX "$TARGET"
+        chmod o+rx "$RUN_DIRECTORY"
+        chmod o+r "$RUN_DIRECTORY/prompt.txt" "$RUN_DIRECTORY/message.schema.json"
+        sudo install -d -o codex-worker -g codex-worker "$RUN_DIRECTORY/output"
+        setsid bash "$GITHUB_ACTION_PATH/scripts/coding-deadline.sh" "$TIMEOUT" </dev/null >/dev/null 2>&1 &
+        echo "deadline-pid=$!" >> "$GITHUB_OUTPUT"
+    - uses: openai/codex-action@1d82a3dba7c7988ec71ecae1ed5b8e8db96495c5 # v1
+      with:
+        openai-api-key: ${{ inputs.openai-api-key }}
+        codex-version: '0.167.0'
+        model: ${{ steps.prepare.outputs.model }}
+        effort: ${{ steps.prepare.outputs.effort }}
+        permission-profile: ':workspace'
+        safety-strategy: unprivileged-user
+        codex-user: codex-worker
+        codex-home: /home/codex-worker/.codex
+        working-directory: ${{ inputs.workspace }}
+        prompt-file: ${{ steps.prepare.outputs.directory }}/prompt.txt
+        output-schema-file: ${{ steps.prepare.outputs.directory }}/message.schema.json
+        output-file: ${{ steps.prepare.outputs.directory }}/output/message.json
+        allow-bots: 'true'
+    - name: Collect bounded result
+      shell: bash
+      env:
+        HARNESS_EXECUTION_ID: ${{ inputs.execution-id }}
+        HARNESS_WORKSPACE: ${{ inputs.workspace }}
+        RUN_DIRECTORY: ${{ steps.prepare.outputs.directory }}
+      run: |
+        sudo pkill -KILL -u codex-worker || true
+        # Even Git diff/filter configuration is untrusted after agent execution.
+        # Collection runs as the same restricted account with an empty environment.
+        sudo -u codex-worker env -i PATH="$PATH" RUNNER_TEMP="$RUNNER_TEMP" \
+          HARNESS_EXECUTION_ID="$HARNESS_EXECUTION_ID" HARNESS_WORKSPACE="$HARNESS_WORKSPACE" \
+          setpriv --no-new-privs --bounding-set=-all --inh-caps=-all --ambient-caps=-all \
+          node "$GITHUB_ACTION_PATH/dist/coding-cli.js" collect
+        sudo pkill -KILL -u codex-worker || true
+        [[ -f "$RUN_DIRECTORY/output/artifact.json" && ! -L "$RUN_DIRECTORY/output/artifact.json" ]]
+        [[ "$(wc -c < "$RUN_DIRECTORY/output/artifact.json")" -le 7000000 ]]
+        cp "$RUN_DIRECTORY/output/artifact.json" "$RUN_DIRECTORY/artifact.json"
+    - name: Stop per-run processes
+      if: always()
+      shell: bash
+      env:
+        DEADLINE_PID: ${{ steps.account.outputs.deadline-pid }}
+      run: |
+        if [[ "$DEADLINE_PID" =~ ^[0-9]+$ ]]; then kill -- "-$DEADLINE_PID" || true; fi
+        sudo pkill -KILL -u codex-worker || true
