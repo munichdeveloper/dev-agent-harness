@@ -20,12 +20,12 @@
         }
       },
       "required": [
-        "enabled",
         "scope"
       ],
       "additionalProperties": false
     },
     "manager": {
+      "default": {},
       "type": "object",
       "properties": {
         "workflow": {
@@ -69,17 +69,10 @@
           }
         }
       },
-      "required": [
-        "workflow",
-        "maxActions",
-        "timeoutMinutes",
-        "maxContextTasks",
-        "maxContextChars",
-        "trustedActors"
-      ],
       "additionalProperties": false
     },
     "autonomy": {
+      "default": {},
       "type": "object",
       "properties": {
         "profile": {
@@ -119,13 +112,10 @@
           }
         }
       },
-      "required": [
-        "profile",
-        "overrides"
-      ],
       "additionalProperties": false
     },
     "execution": {
+      "default": {},
       "type": "object",
       "properties": {
         "dryRun": {
@@ -163,17 +153,10 @@
           "maximum": 60
         }
       },
-      "required": [
-        "dryRun",
-        "maxParallelWorkers",
-        "maxRetries",
-        "maxNewIssues",
-        "workerTimeoutMinutes",
-        "dispatchGraceMinutes"
-      ],
       "additionalProperties": false
     },
     "llm": {
+      "default": {},
       "type": "object",
       "properties": {
         "provider": {
@@ -227,20 +210,14 @@
           "maximum": 3
         }
       },
-      "required": [
-        "provider",
-        "model",
-        "reasoningEffort",
-        "maxOutputTokens",
-        "timeoutSeconds",
-        "maxCalls"
-      ],
       "additionalProperties": false
     },
     "workers": {
+      "default": {},
       "type": "object",
       "properties": {
         "test": {
+          "default": {},
           "type": "object",
           "properties": {
             "enabled": {
@@ -257,10 +234,6 @@
               ]
             }
           },
-          "required": [
-            "enabled",
-            "operation"
-          ],
           "additionalProperties": false
         },
         "coding": {
@@ -274,14 +247,10 @@
           "const": false
         }
       },
-      "required": [
-        "test",
-        "coding",
-        "review"
-      ],
       "additionalProperties": false
     },
     "reporting": {
+      "default": {},
       "type": "object",
       "properties": {
         "persistDecisions": {
@@ -289,21 +258,12 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "persistDecisions"
-      ],
       "additionalProperties": false
     }
   },
   "required": [
     "version",
-    "harness",
-    "manager",
-    "autonomy",
-    "execution",
-    "llm",
-    "workers",
-    "reporting"
+    "harness"
   ],
   "additionalProperties": false
 }

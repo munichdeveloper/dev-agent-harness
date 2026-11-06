@@ -6,5 +6,5 @@ import { workerInputSchema, workerResultSchema } from '../src/workers/contract.j
 import { eventSchema } from '../src/state/events.js';
 await mkdir('schemas', { recursive: true });
 for (const [name, schema] of Object.entries({ config: configSchema, plan: planSchema, 'worker-input': workerInputSchema, 'worker-result': workerResultSchema, event: eventSchema })) {
-  await writeFile(`schemas/${name}.schema.json`, JSON.stringify(z.toJSONSchema(schema), null, 2) + '\n');
+  await writeFile(`schemas/${name}.schema.json`, JSON.stringify(z.toJSONSchema(schema, { io: name === 'config' ? 'input' : 'output' }), null, 2) + '\n');
 }

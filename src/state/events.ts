@@ -3,12 +3,15 @@ import type { Comment } from '../types.js';
 import { workerInputSchema, workerResultSchema } from '../workers/contract.js';
 
 export const marker = '<!-- dev-agent-harness:v1 -->';
+export const blockCauseSchema = z.enum(['specification', 'dependencies', 'dispatch', 'worker', 'planner']);
+export type BlockCause = z.infer<typeof blockCauseSchema>;
 export const eventSchema = z.strictObject({
   version: z.literal(1), key: z.string().min(1).max(200), at: z.iso.datetime(), correlationId: z.string().max(100),
   data: z.discriminatedUnion('type', [
     z.strictObject({ type: z.literal('intent'), input: workerInputSchema, actionId: z.string().length(64), attempt: z.number().int().nonnegative() }),
     z.strictObject({ type: z.literal('receipt'), executionId: z.string().length(32), runId: z.number().int().positive() }),
     z.strictObject({ type: z.literal('result'), result: workerResultSchema }),
+    z.strictObject({ type: z.literal('block_intent'), taskVersion: z.string().length(64), cause: blockCauseSchema, afterLabelEventId: z.number().int().nonnegative() }),
     z.strictObject({ type: z.literal('decision'), action: z.string().max(30000), outcome: z.enum(['allow', 'deny', 'approval', 'executed']), reason: z.string().max(2000) })
   ])
 });

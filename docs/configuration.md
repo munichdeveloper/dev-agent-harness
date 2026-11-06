@@ -33,7 +33,7 @@ Generated JSON schemas share the executable Zod source.
 | `workers.test.operation` | `sha256` | Digest, deterministic `fail`, or deterministic `blocked` |
 | `workers.coding` | `false` | Must be false; not implemented |
 | `workers.review` | `false` | Must be false; not implemented |
-| `reporting.persistDecisions` | `true` | Deduplicated decision comments; intent/results always durable |
+| `reporting.persistDecisions` | `true` | Deduplicated decision comments; execution intents/results and automatic block provenance always durable |
 
 ## Policy defaults
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Manager } from '../src/manager/index.js';
-import { MockPlanner, proposal, type Planner } from '../src/llm/provider.js';
+import { MockPlanner, OpenAIPlanner, proposal, type Planner } from '../src/llm/provider.js';
 import { reconstruct } from '../src/state/reconstruct.js';
 import { runTestWorker } from '../src/workers/test-worker.js';
 import { decodeEvent, encodeEvent } from '../src/state/events.js';
@@ -176,5 +176,78 @@ describe('manager integration with simulated GitHub responses', () => {
     github.state.runs = []; const report = await run();
     expect(reconstruct(github.state, cfg, clock)[0]!.latest!.result?.status).toBe('cancelled');
     expect(report.blockers.join()).not.toContain('uncertain'); expect(github.dispatches).toBe(1);
+  });
+  it('recovers specification blocks without optional decision logs', async () => {
+    const { github, cfg, run } = setup(); cfg.reporting.persistDecisions = false;
+    const task = issue(); task.body = 'Incomplete'; github.state.issues.push(task);
+    await run(); expect(github.state.issues[0]!.labels).toContain('harness:blocked');
+    const events = (await github.comments(1)).map(c => decodeEvent(c, cfg.manager.trustedActors));
+    expect(events.some(e => e?.data.type === 'block_intent')).toBe(true);
+    expect(events.some(e => e?.data.type === 'decision')).toBe(false);
+    github.state.issues[0]!.body = issue().body; await run();
+    expect(github.dispatches).toBe(1);
+  });
+  it.each(['maintainer', 'github-actions[bot]'])('preserves a new explicit block by %s after an older automatic block resolved', async actor => {
+    const { github, cfg, run } = setup(); cfg.execution.maxRetries = 0;
+    const task = issue(); task.body = 'Incomplete'; github.state.issues.push(task); await run();
+    github.state.issues[0]!.body = issue().body; cfg.llm.maxCalls = 0; await run();
+    expect(github.state.issues[0]!.labels).toContain('harness:ready');
+    github.labelBlock(1, true, actor); cfg.llm.maxCalls = 1; const report = await run();
+    expect(report.blockers.join()).toContain('explicitly marked blocked'); expect(github.dispatches).toBe(0);
+    expect(github.state.issues[0]!.labels).toContain('harness:blocked');
+  });
+  it('preserves a human block even after all declared dependencies close', async () => {
+    const { github, run } = setup(); const task = issue(1, ['harness:managed', 'harness:blocked']); task.body += '\nDepends on: #9';
+    github.state.issues.push(task); github.state.dependencyStates.set(9, true);
+    await run(); expect(github.dispatches).toBe(0); expect(github.state.issues[0]!.labels).toContain('harness:blocked');
+  });
+  it('recovers quarantine after the original worker completes, with decision logs disabled', async () => {
+    const { github, cfg, run } = setup(); cfg.reporting.persistDecisions = false; github.state.issues.push(issue());
+    await run(); const original = structuredClone(github.state.runs[0]!); github.state.runs = [];
+    const later = new Date(clock.getTime() + 11 * 60000); await run(new MockPlanner(), later);
+    expect(github.state.issues[0]!.labels).toContain('harness:blocked');
+    github.state.runs.push(original);
+    const id = reconstruct(github.state, cfg, later)[0]!.latest!.input.executionId;
+    await runTestWorker(github, cfg, 1, id, 'worker'); github.state.runs[0]!.status = 'completed';
+    await run(new MockPlanner(), later);
+    expect(github.state.issues[0]!.labels).toContain('harness:awaiting-pr'); expect(github.dispatches).toBe(1);
+  });
+  it('retains automatic block origin through a crash after the label update', async () => {
+    const { github, cfg, run } = setup(); cfg.reporting.persistDecisions = false;
+    const task = issue(); task.body = 'Incomplete'; github.state.issues.push(task); github.failAfterBlockUpdate = true;
+    expect((await run()).errors).toHaveLength(1); github.failAfterBlockUpdate = false;
+    github.state.issues[0]!.body = issue().body; await run(); expect(github.dispatches).toBe(1);
+  });
+  it('preserves a new human block after a quarantine resolves', async () => {
+    const { github, run } = setup(); github.state.issues.push(issue()); await run();
+    const original = structuredClone(github.state.runs[0]!); github.state.runs = [];
+    await run(new MockPlanner(), new Date(clock.getTime() + 11 * 60000));
+    github.state.runs.push(original); await run(); expect(github.state.issues[0]!.labels).toContain('harness:running');
+    github.labelBlock(1, true); await run(); expect(github.state.issues[0]!.labels).toContain('harness:blocked'); expect(github.dispatches).toBe(1);
+  });
+  it('still dispatches runnable work when the repository has over 100 tasks', async () => {
+    const { github, run } = setup(); github.state.issues = Array.from({ length: 101 }, (_, n) => issue(n + 1));
+    const report = await run(); expect(report.errors).toEqual([]); expect(github.dispatches).toBe(1);
+  });
+  it.each([0, 1])('missing OpenAI credentials do not prevent reconciliation with maxCalls=%s', async maxCalls => {
+    const { github, cfg, run } = setup(); cfg.llm.provider = 'openai'; cfg.llm.maxCalls = maxCalls;
+    github.state.issues.push(issue(1, ['harness:managed']));
+    const report = await run(new OpenAIPlanner(''));
+    expect(github.state.issues[0]!.labels).toContain('harness:ready'); expect(github.dispatches).toBe(0);
+    expect(report.errors).toHaveLength(maxCalls === 0 ? 0 : 1);
+  });
+  it('defers when a human block arrives between validation and the final read', async () => {
+    const { github, run } = setup(); github.state.issues.push(issue(1, ['harness:managed']));
+    const getIssue = github.getIssue.bind(github);
+    github.getIssue = async number => { github.labelBlock(number, true); return getIssue(number); };
+    expect((await run()).errors).toHaveLength(1);
+    expect(github.dispatches).toBe(0); expect(github.state.issues[0]!.labels).toContain('harness:blocked');
+  });
+  it('cancels queued work when a human explicitly blocks the task', async () => {
+    const { github, cfg, run } = setup(); github.state.issues.push(issue()); await run();
+    const id = reconstruct(github.state, cfg, clock)[0]!.latest!.input.executionId;
+    github.labelBlock(1, true);
+    expect((await runTestWorker(github, cfg, 1, id, 'worker')).status).toBe('cancelled');
+    expect(github.state.issues[0]!.labels).toContain('harness:blocked');
   });
 });

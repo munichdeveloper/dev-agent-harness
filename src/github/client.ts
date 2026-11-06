@@ -30,7 +30,19 @@ export class GitHubClient implements GitHubPort {
   async getIssue(number: number): Promise<Issue> {
     const { data } = await this.api.issues.get({ ...this.target, issue_number: number });
     if (data.pull_request) throw new Error(`#${number} is a pull request, not a task`);
-    return normalizeIssue(data);
+    const issue = normalizeIssue(data);
+    return issue.labels.includes(managedLabel) ? this.withTimeline(issue) : issue;
+  }
+  private async withTimeline(issue: Issue): Promise<Issue> {
+    const timeline = await this.api.paginate(this.api.issues.listEventsForTimeline, { ...this.target, issue_number: issue.number, per_page: 100 });
+    const reopenings = timeline.flatMap(e => e.event === 'reopened' && 'created_at' in e && typeof e.created_at === 'string' ? [e.created_at] : []);
+    issue.reopenedAt = reopenings.sort().at(-1);
+    issue.blockedLabelEvents = timeline.flatMap(e => {
+      if ((e.event !== 'labeled' && e.event !== 'unlabeled') || !('label' in e) || e.label?.name !== 'harness:blocked' ||
+          !('id' in e) || typeof e.id !== 'number' || !('created_at' in e) || typeof e.created_at !== 'string') return [];
+      return [{ id: e.id, event: e.event as 'labeled' | 'unlabeled', actor: 'actor' in e ? e.actor?.login ?? '' : '', createdAt: e.created_at }];
+    }).sort((a, b) => a.id - b.id);
+    return issue;
   }
   async comments(number: number): Promise<Comment[]> {
     const rows = await this.api.paginate(this.api.issues.listComments, { ...this.target, issue_number: number, per_page: 100 });
@@ -82,12 +94,8 @@ export class GitHubClient implements GitHubPort {
     // Repository push is contents-write, not issues/actions-write. A least-privilege
     // GITHUB_TOKEN intentionally has push=false; concrete APIs enforce their own scopes.
     const issues = rows.filter(i => !i.pull_request).map(normalizeIssue);
-    // A human reopening after a merge supersedes that old completion proof.
-    for (const issue of issues.filter(i => i.state === 'open' && prs.some(p => p.merged && p.closingIssues.includes(i.number)))) {
-      const timeline = await this.api.paginate(this.api.issues.listEventsForTimeline, { ...this.target, issue_number: issue.number, per_page: 100 });
-      const reopenings = timeline.filter(e => e.event === 'reopened' && 'created_at' in e).map(e => 'created_at' in e ? e.created_at : undefined).filter((s): s is string => typeof s === 'string');
-      issue.reopenedAt = reopenings.sort().at(-1);
-    }
+    // Native label events identify the current block; comments alone cannot prove its origin.
+    for (const issue of issues) await this.withTimeline(issue);
     const comments = new Map<number, Comment[]>();
     for (const issue of issues) comments.set(issue.number, await this.comments(issue.number));
     const dependencyStates = new Map<number, boolean>();

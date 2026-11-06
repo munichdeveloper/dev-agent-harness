@@ -1,7 +1,8 @@
 import type { Config } from '../config/index.js';
-import { actionSchema, type Issue, type Snapshot, type Status, type WorkflowRun } from '../types.js';
+import type { Issue, Snapshot, Status, WorkflowRun } from '../types.js';
 import type { WorkerInput, WorkerResult } from '../workers/contract.js';
-import { decodeEvent, type HarnessEvent } from './events.js';
+import { decodeEvent, type BlockCause, type HarnessEvent } from './events.js';
+import { currentAutomaticBlock } from './blocks.js';
 import { acceptanceCriteria, dependencies, issueStatus } from './lifecycle.js';
 import { taskVersion } from './identity.js';
 
@@ -10,6 +11,7 @@ export interface Task {
   issue: Issue; version: string; status: Status; desiredStatus: Status; events: HarnessEvent[];
   executions: Execution[]; latest?: Execution; blocked: boolean; blockReason?: string;
   hasOpenPR: boolean; hasClosingMerge: boolean; criteria: string[];
+  automaticBlockCause?: BlockCause;
 }
 export function reconstruct(snapshot: Snapshot, config: Config, now = new Date()): Task[] {
   return snapshot.issues.map(issue => {
@@ -44,24 +46,23 @@ export function reconstruct(snapshot: Snapshot, config: Config, now = new Date()
     const criteria = acceptanceCriteria(issue.body);
     const deps = dependencies(issue.body);
     const unresolved = deps.filter(n => snapshot.dependencyStates.get(n) !== true);
-    const previousBlock = events.flatMap(e => {
-      if (e.data.type !== 'decision' || e.data.outcome !== 'executed') return [];
-      try {
-        const a = actionSchema.safeParse(JSON.parse(e.data.action));
-        return a.success && a.data.kind === 'transition' && a.data.status === 'blocked' ? [a.data] : [];
-      } catch { return []; }
-    }).at(-1);
-    const explicitBlock = issueStatus(issue) === 'blocked' && deps.length === 0 &&
-      (!previousBlock || previousBlock.taskVersion === version);
+    const automaticBlock = currentAutomaticBlock(issue, events, config.manager.trustedActors);
+    const explicitBlock = issue.labels.includes('harness:blocked') && !automaticBlock;
+    const semanticBlock = automaticBlock?.cause === 'planner' && automaticBlock.taskVersion === version;
     const blockReason = unresolved.length ? `Unresolved dependencies: ${unresolved.map(n => `#${n}`).join(', ')}`
       : !criteria.length ? 'Missing Acceptance criteria section'
-      : explicitBlock ? 'Issue explicitly marked blocked; revise the task or clear the blocked label' : undefined;
+      : explicitBlock ? 'Issue explicitly marked blocked; clear the blocked label to resume'
+      : semanticBlock ? 'Planner marked task blocked; revise the task or clear the blocked label' : undefined;
+    const automaticBlockCause: BlockCause | undefined = executions.some(e => e.ambiguous) ? 'dispatch'
+      : unresolved.length ? 'dependencies' : !criteria.length ? 'specification'
+      : semanticBlock ? 'planner' : latest?.result?.status === 'blocked' ? 'worker' : undefined;
     const linked = snapshot.prs.filter(p => p.closingIssues.includes(issue.number) || p.referencedIssues.includes(issue.number));
     const hasOpenPR = linked.some(p => p.state === 'open');
     const hasClosingMerge = linked.some(p => p.merged && p.closingIssues.includes(issue.number) &&
       (!issue.reopenedAt || (!!p.mergedAt && p.mergedAt > issue.reopenedAt)));
     let desiredStatus: Status = issueStatus(issue) ?? 'backlog';
     if (issue.state === 'closed') desiredStatus = 'done';
+    else if (explicitBlock) desiredStatus = 'blocked';
     else if (issueStatus(issue) === 'done') desiredStatus = 'backlog';
     else if (executions.some(e => e.active)) desiredStatus = executions.some(e => e.ambiguous) ? 'blocked' : 'running';
     else if (hasClosingMerge) desiredStatus = 'done';
@@ -70,6 +71,6 @@ export function reconstruct(snapshot: Snapshot, config: Config, now = new Date()
     else if (hasOpenPR) desiredStatus = 'awaiting-pr';
     else if (['backlog', 'blocked', 'awaiting-pr'].includes(desiredStatus)) desiredStatus = 'ready';
     return { issue, version, status: issueStatus(issue) ?? 'backlog', desiredStatus, events, executions, latest,
-      blocked: !!blockReason, blockReason, hasOpenPR, hasClosingMerge, criteria };
+      blocked: !!blockReason, blockReason, automaticBlockCause, hasOpenPR, hasClosingMerge, criteria };
   });
 }

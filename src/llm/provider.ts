@@ -10,9 +10,10 @@ export const proposal = (task: Task, kind: Action['kind'], reason: string, value
   followup: null, reason, ...values
 });
 export class MockPlanner implements Planner {
-  async plan(tasks: Task[]): Promise<Plan> {
+  async plan(tasks: Task[], config: Config): Promise<Plan> {
     return { version: 1, actions: tasks.filter(t => !t.blocked && !t.latest && !t.hasOpenPR && !t.hasClosingMerge && t.issue.state === 'open' && !t.executions.some(e => e.active))
       .sort((a, b) => priority(a) - priority(b) || a.issue.number - b.issue.number)
+      .slice(0, config.manager.maxContextTasks)
       .map(t => proposal(t, 'start_worker', 'Runnable task selected by deterministic mock planner')) };
   }
 }
@@ -44,10 +45,9 @@ export function compactContext(tasks: Task[], config: Config): string {
   return JSON.stringify({ trustedScope: config.harness.scope, untrustedTasks: selected });
 }
 export class OpenAIPlanner implements Planner {
-  constructor(private key: string, private fetcher: typeof fetch = fetch) {
-    if (!key) throw new Error('OPENAI_API_KEY is required for llm.provider=openai');
-  }
+  constructor(private key: string, private fetcher: typeof fetch = fetch) {}
   async plan(tasks: Task[], config: Config): Promise<Plan> {
+    if (!this.key) throw new Error('OPENAI_API_KEY is required for llm.provider=openai');
     let last = 'No LLM calls permitted';
     for (let attempt = 0; attempt < config.llm.maxCalls; attempt++) {
       try {

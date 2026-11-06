@@ -12,6 +12,8 @@ export class MemoryGitHub implements GitHubPort {
   mutations: string[] = [];
   failDispatchAfterStart = false;
   failReceipt = false;
+  failAfterBlockUpdate = false;
+  private nextLabelEventId = 1;
   dispatches = 0;
   async readConfig(): Promise<string> { return ''; }
   async snapshot(): Promise<Snapshot> { return structuredClone(this.state); }
@@ -26,7 +28,22 @@ export class MemoryGitHub implements GitHubPort {
     this.state.comments.set(number, rows);
   }
   async updateIssue(number: number, update: { labels?: string[]; state?: 'open' | 'closed' }): Promise<void> {
-    this.mutations.push(`update:${number}`); Object.assign(this.state.issues.find(i => i.number === number)!, update);
+    this.mutations.push(`update:${number}`);
+    const task = this.state.issues.find(i => i.number === number)!;
+    if (update.labels && task.labels.includes('harness:blocked') !== update.labels.includes('harness:blocked')) {
+      this.labelBlock(number, update.labels.includes('harness:blocked'), 'github-actions[bot]');
+    }
+    Object.assign(task, update);
+    if (this.failAfterBlockUpdate && update.labels?.includes('harness:blocked')) throw new Error('Simulated crash after block label update');
+  }
+  labelBlock(number: number, blocked: boolean, actor = 'maintainer'): void {
+    const task = this.state.issues.find(i => i.number === number)!;
+    task.blockedLabelEvents ??= [];
+    const id = Math.max(this.nextLabelEventId, ...task.blockedLabelEvents.map(e => e.id + 1));
+    this.nextLabelEventId = id + 1;
+    task.blockedLabelEvents.push({ id, event: blocked ? 'labeled' : 'unlabeled', actor, createdAt: clock.toISOString() });
+    task.labels = task.labels.filter(l => l !== 'harness:blocked');
+    if (blocked) task.labels.push('harness:blocked');
   }
   async createIssue(title: string, body: string, labels: string[]): Promise<Issue> {
     const next = { ...issue(this.state.issues.length + 1, labels), title, body };

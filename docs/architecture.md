@@ -48,6 +48,10 @@ reason. Execution state records full intent, optional run receipt and result.
 Events use `<!-- dev-agent-harness:v1 -->` and fenced JSON. Trusted author allowlist
 and schema validation distinguish machine events from user text. Approval commands
 require current repository write permission. Unsupported event versions are ignored.
+Automatic blocks record a mandatory intent before labeling. The paginated native
+Issue timeline identifies the exact label application; only the first blocked-label
+change after that intent can belong to it. Later human blocks are preserved. This
+execution state remains mandatory when optional decision logging is disabled.
 
 - Task version: SHA-256 of canonical title/body.
 - Action ID: SHA-256 of semantic payload (excluding rationale) and complete config;

@@ -5,6 +5,7 @@ import { actionSchema, planSchema, type Action, type Snapshot } from '../types.j
 import { actionId, executionId, hash, taskVersion } from '../state/identity.js';
 import { decodeEvent, type HarnessEvent } from '../state/events.js';
 import { reconstruct, type Task } from '../state/reconstruct.js';
+import { lastBlockLabelEventId } from '../state/blocks.js';
 import { managedLabel, priorityLabels, withStatus } from '../state/lifecycle.js';
 import { evaluate, policyVersion, type Budget } from '../policies/engine.js';
 import { workerInputSchema } from '../workers/contract.js';
@@ -38,6 +39,8 @@ export class Manager {
   private async execute(action: Action, task: Task, snapshot: Snapshot): Promise<boolean> {
     const live = await this.github.getIssue(task.issue.number);
     if (taskVersion(live) !== action.taskVersion || !live.labels.includes(managedLabel)) throw new Error('Task changed during execution; deferred to next run');
+    if (live.labels.includes('harness:blocked') && (!task.issue.labels.includes('harness:blocked') ||
+      lastBlockLabelEventId(live) !== lastBlockLabelEventId(task.issue))) throw new Error('Block changed during execution; deferred to next run');
     switch (action.kind) {
       case 'transition': {
         let journaled = false;
@@ -49,6 +52,14 @@ export class Manager {
         }
         const labels = withStatus(live, action.status!);
         if ([...live.labels].sort().join('\0') === [...labels].sort().join('\0')) return journaled;
+        if (action.status === 'blocked' && !live.labels.includes('harness:blocked')) {
+          const floor = lastBlockLabelEventId(live);
+          const id = hash({ actionId: actionId(action, policyVersion(this.config)), floor });
+          // Mandatory recovery state, separate from optional decision/audit logging.
+          // Persist before labeling so a crash after the API update remains recoverable.
+          await this.event(live.number, `block:${id}`, { type: 'block_intent', taskVersion: task.version,
+            cause: task.automaticBlockCause ?? 'planner', afterLabelEventId: floor });
+        }
         await this.github.updateIssue(live.number, { labels }); return true;
       }
       case 'close_issue':
@@ -88,7 +99,7 @@ export class Manager {
         const run = existing ?? (await this.github.runs(this.config.manager.workflow)).find(r => r.title === `Harness worker ${id}`);
         if (run) await this.event(live.number, `receipt:${id}`, { type: 'receipt', executionId: id, runId: run.id });
         const fresh = await this.github.getIssue(live.number);
-        if (taskVersion(fresh) === action.taskVersion && fresh.state === 'open') await this.github.updateIssue(live.number, { labels: withStatus(fresh, 'running') });
+        if (taskVersion(fresh) === action.taskVersion && fresh.state === 'open' && !fresh.labels.includes('harness:blocked')) await this.github.updateIssue(live.number, { labels: withStatus(fresh, 'running') });
         return true;
       }
       case 'cancel_worker': {

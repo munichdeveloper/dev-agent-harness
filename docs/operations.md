@@ -7,9 +7,14 @@ Actions for immediate termination. Manual dry_run previews one manager run.
 
 Keep the wrapper filename/config and `Harness worker <executionId>` run name
 stable. Intents/results must remain in Issue comments; artifacts are optional.
-An explicit blocked label without dependencies stays blocked. Clear that label to
-resume, or revise text after a manager-recorded specification block. Dependency
-blocks clear after all declared dependencies close.
+An explicitly applied blocked label stays blocked until it is cleared, including
+when dependencies are closed. Automatic blocks have a mandatory `block_intent`
+record tied to the first native blocked-label change after that record's event
+boundary. Specification/dependency blocks clear when their condition is fixed;
+dispatch quarantine clears when the original execution resolves. This recovery
+does not depend on `reporting.persistDecisions`. A later remove/reapply is a new
+block and never inherits an older automatic origin, even for the same actor.
+Unknown/legacy block provenance is treated as explicit and requires manual clearing.
 
 | Failure | Recovery |
 |---|---|

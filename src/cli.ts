@@ -1,6 +1,7 @@
 import { appendFile, readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { parseArgs } from 'node:util';
+import { pathToFileURL } from 'node:url';
 import { configSchema, loadConfig } from './config/index.js';
 import { GitHubClient } from './github/client.js';
 import { Manager } from './manager/index.js';
@@ -8,12 +9,12 @@ import { MockPlanner, OpenAIPlanner } from './llm/provider.js';
 import { summary } from './manager/report.js';
 import { runTestWorker } from './workers/test-worker.js';
 
-const { values, positionals } = parseArgs({ allowPositionals: true, options: {
-  repository: { type: 'string' }, 'config-path': { type: 'string', default: '.github/harness.yml' },
-  file: { type: 'string' }, 'dry-run': { type: 'boolean', default: false },
-  'allow-local-writes': { type: 'boolean', default: false }, issue: { type: 'string' }, execution: { type: 'string' }
-} });
-async function main(): Promise<void> {
+export async function main(args = process.argv.slice(2)): Promise<void> {
+  const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
+    repository: { type: 'string' }, 'config-path': { type: 'string', default: '.github/harness.yml' },
+    file: { type: 'string' }, 'dry-run': { type: 'boolean', default: false },
+    'allow-local-writes': { type: 'boolean', default: false }, issue: { type: 'string' }, execution: { type: 'string' }
+  } });
   const command = positionals[0] ?? 'manager';
   if (command === 'validate') {
     if (!values.file) throw new Error('validate requires --file');
@@ -38,7 +39,9 @@ async function main(): Promise<void> {
   timer.unref();
   try {
     if (command === 'bootstrap') {
-      if (config.execution.dryRun) { console.log('Dry run: bootstrap skipped'); return; }
+      if (config.execution.dryRun || config.autonomy.profile === 'advisory') {
+        console.log('Mutation-free mode: bootstrap skipped'); return;
+      }
       console.log(JSON.stringify({ correlationId, createdLabels: await github.bootstrap() })); return;
     }
     if (command === 'worker') {
@@ -56,7 +59,7 @@ async function main(): Promise<void> {
     if (report.errors.length) process.exitCode = 1;
   } finally { clearTimeout(timer); }
 }
-main().catch(async error => {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(async error => {
   // Config errors are safe; API/request objects are deliberately never printed.
   const message = error instanceof Error ? error.message : '';
   const safe = /^(Invalid harness configuration|Invalid YAML|Supported commands|validate requires|Local mutations|Invalid worker|OPENAI_API_KEY|GITHUB_TOKEN|Repository must|Configuration must)/.test(message)

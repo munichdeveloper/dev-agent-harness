@@ -26,6 +26,7 @@
   queued work is cancelled if authorization changed after delegation.
 - Caps, global disable and dry run apply in all profiles. Advisory prohibits all
   mutations. Unsupported actions cannot be enabled through overrides.
+  Bootstrap also skips all mutations in advisory and dry-run modes.
 - Logs omit secrets, issue text, raw request errors and provider response bodies.
   Job-summary text is escaped. Provider requests use a fixed HTTPS OpenAI endpoint;
   there is no configurable credential-exfiltration URL.

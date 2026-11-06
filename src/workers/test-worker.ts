@@ -4,6 +4,7 @@ import type { Config } from '../config/index.js';
 import { decodeEvent } from '../state/events.js';
 import { workerInputSchema, workerResultSchema, type WorkerInput, type WorkerResult } from './contract.js';
 import { actionId, taskVersion } from '../state/identity.js';
+import { currentAutomaticBlock } from '../state/blocks.js';
 import { permission, policyVersion } from '../policies/engine.js';
 import type { Action } from '../types.js';
 
@@ -36,7 +37,8 @@ export async function runTestWorker(github: GitHubPort, config: Config, issueNum
   }
   const rule = permission(config, original.kind);
   const policyChanged = actionId(original, policyVersion(config)) !== event.data.actionId || rule === 'deny' || (rule === 'approval' && !approved);
-  const stale = policyChanged || issue.state !== 'open' || !issue.labels.includes('harness:managed') || taskVersion(issue) !== input.taskVersion;
+  const explicitlyBlocked = issue.labels.includes('harness:blocked') && !currentAutomaticBlock(issue, events, config.manager.trustedActors);
+  const stale = policyChanged || explicitlyBlocked || issue.state !== 'open' || !issue.labels.includes('harness:managed') || taskVersion(issue) !== input.taskVersion;
   const result = stale ? workerResultSchema.parse({ contractVersion: '1.0', executionId: id, issueNumber, status: 'cancelled',
     summary: 'Task, policy or approval changed after delegation', artifacts: [], error: null, proposedActions: [] }) : testOperation(input);
   if (Buffer.byteLength(JSON.stringify(result)) > input.limits.maxOutputBytes) throw new Error('Worker output exceeds contract resource limit');

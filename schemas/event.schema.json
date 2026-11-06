@@ -413,6 +413,42 @@
           "properties": {
             "type": {
               "type": "string",
+              "const": "block_intent"
+            },
+            "taskVersion": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64
+            },
+            "cause": {
+              "type": "string",
+              "enum": [
+                "specification",
+                "dependencies",
+                "dispatch",
+                "worker",
+                "planner"
+              ]
+            },
+            "afterLabelEventId": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "type",
+            "taskVersion",
+            "cause",
+            "afterLabelEventId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
               "const": "decision"
             },
             "action": {

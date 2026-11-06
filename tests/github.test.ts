@@ -53,4 +53,22 @@ describe('Octokit adapter against simulated REST and GraphQL HTTP responses', ()
     const gh = new GitHubClient('owner/target', 'token', 1000, transport(() => json({ permission: 'read' })));
     expect(await gh.canApprove('attacker')).toBe(false);
   });
+  it('reads the current blocked-label provenance across timeline pages', async () => {
+    const gh = new GitHubClient('owner/target', 'token', 1000, transport(url => {
+      if (!url.pathname.endsWith('/timeline')) return json({ number: 1, title: 'blocked', body: '', state: 'open',
+        labels: [{ name: 'harness:managed' }, { name: 'harness:blocked' }], updated_at: '2026-11-06T10:00:00Z' });
+      const firstPage = [{ id: 1, event: 'labeled', label: { name: 'harness:blocked' }, actor: { login: 'github-actions[bot]' }, created_at: '2026-11-06T10:00:00Z' }];
+      const secondPage = [
+        { id: 2, event: 'unlabeled', label: { name: 'harness:blocked' }, actor: { login: 'github-actions[bot]' }, created_at: '2026-11-06T10:01:00Z' },
+        { id: 3, event: 'labeled', label: { name: 'harness:blocked' }, actor: { login: 'maintainer' }, created_at: '2026-11-06T10:02:00Z' },
+        { id: 4, event: 'labeled', label: { name: 'unrelated' }, actor: { login: 'maintainer' }, created_at: '2026-11-06T10:03:00Z' }
+      ];
+      return url.searchParams.get('page') === '2' ? json(secondPage) : json(firstPage, {
+        link: '<https://api.github.com/repos/owner/target/issues/1/timeline?page=2>; rel="next"'
+      });
+    }));
+    expect((await gh.getIssue(1)).blockedLabelEvents?.map(e => [e.id, e.event, e.actor])).toEqual([
+      [1, 'labeled', 'github-actions[bot]'], [2, 'unlabeled', 'github-actions[bot]'], [3, 'labeled', 'maintainer']
+    ]);
+  });
 });
