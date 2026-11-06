@@ -1,0 +1,42 @@
+name: Dev Agent Harness
+run-name: Harness ${{ inputs.mode || 'manager' }} ${{ inputs.execution_id }}
+on:
+  schedule:
+    - cron: '17 */2 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [manager, bootstrap, worker]
+        default: manager
+      execution_id:
+        type: string
+        default: ''
+      issue_number:
+        type: string
+        default: ''
+      dry_run:
+        type: boolean
+        default: false
+permissions: {}
+# The sole manager lock belongs to the caller. Do not reuse this group in the callee.
+# Worker execution IDs have separate locks; queued duplicate worker runs see the durable result.
+concurrency:
+  group: ${{ github.repository }}-harness-${{ inputs.mode == 'worker' && inputs.execution_id || 'manager' }}
+  cancel-in-progress: false
+jobs:
+  harness:
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+      actions: write
+    uses: munichdeveloper/dev-agent-harness/.github/workflows/manager.yml@HARNESS_COMMIT_SHA
+    with:
+      harness-ref: HARNESS_COMMIT_SHA
+      mode: ${{ inputs.mode || 'manager' }}
+      execution-id: ${{ inputs.execution_id || '' }}
+      issue-number: ${{ inputs.issue_number || '' }}
+      dry-run: ${{ inputs.dry_run || false }}
+    secrets:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
