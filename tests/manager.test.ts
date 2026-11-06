@@ -141,4 +141,23 @@ describe('manager integration with simulated GitHub responses', () => {
     github.state.prs.push({ number: 2, state: 'closed', merged: true, mergedAt: '2026-11-06T09:00:00Z', closingIssues: [1], referencedIssues: [1] });
     await run(); await run(); expect(github.state.issues[0]!.state).toBe('open');
   });
+  it('cancels queued work if its configuration changes before execution', async () => {
+    const { github, cfg, run } = setup(); github.state.issues.push(issue()); await run();
+    const id = reconstruct(github.state, cfg, clock)[0]!.latest!.input.executionId;
+    cfg.autonomy.overrides.start_worker = 'deny';
+    expect((await runTestWorker(github, cfg, 1, id, 'worker')).status).toBe('cancelled');
+    expect(github.state.issues[0]!.labels).toContain('harness:running');
+  });
+  it('does not reuse a supervised retry approval for a later attempt', async () => {
+    const { github, cfg, run } = setup('supervised'); cfg.workers.test.operation = 'fail'; github.state.issues.push(issue());
+    let report = await run(); github.approve(1, report.decisions[0]!.decision.actionId); await run();
+    let id = reconstruct(github.state, cfg, clock)[0]!.latest!.input.executionId;
+    await runTestWorker(github, cfg, 1, id, 'worker'); github.state.runs[0]!.status = 'completed';
+    report = await run(); const firstRetry = report.decisions.find(d => d.action.kind === 'retry_worker')!;
+    github.approve(1, firstRetry.decision.actionId); await run(); expect(github.dispatches).toBe(2);
+    id = reconstruct(github.state, cfg, clock)[0]!.latest!.input.executionId;
+    await runTestWorker(github, cfg, 1, id, 'worker'); github.state.runs[1]!.status = 'completed';
+    report = await run(); const secondRetry = report.decisions.find(d => d.action.kind === 'retry_worker')!;
+    expect(secondRetry.decision.outcome).toBe('approval'); expect(secondRetry.decision.actionId).not.toBe(firstRetry.decision.actionId); expect(github.dispatches).toBe(2);
+  });
 });

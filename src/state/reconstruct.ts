@@ -23,7 +23,8 @@ export function reconstruct(snapshot: Snapshot, config: Config, now = new Date()
       if (event.data.type !== 'intent' || executions.some(e => e.input.executionId === (event.data.type === 'intent' ? event.data.input.executionId : ''))) continue;
       const { input, attempt } = event.data;
       if (input.issueNumber !== issue.number) continue;
-      const run = snapshot.runs.find(r => r.title === `Harness worker ${input.executionId}`);
+      const matching = snapshot.runs.filter(r => r.title === `Harness worker ${input.executionId}`);
+      const run = matching.find(r => r.status !== 'completed') ?? matching[0];
       const found = events.find(e => e.data.type === 'result' && e.data.result.executionId === input.executionId && e.data.result.issueNumber === issue.number);
       let result = found?.data.type === 'result' ? found.data.result : undefined;
       if (!result && run?.status === 'completed') {
