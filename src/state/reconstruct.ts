@@ -46,7 +46,8 @@ export function reconstruct(snapshot: Snapshot, config: Config, now = new Date()
       : !criteria.length ? 'Missing Acceptance criteria section' : undefined;
     const linked = snapshot.prs.filter(p => p.closingIssues.includes(issue.number) || p.referencedIssues.includes(issue.number));
     const hasOpenPR = linked.some(p => p.state === 'open');
-    const hasClosingMerge = linked.some(p => p.merged && p.closingIssues.includes(issue.number));
+    const hasClosingMerge = linked.some(p => p.merged && p.closingIssues.includes(issue.number) &&
+      (!issue.reopenedAt || (!!p.mergedAt && p.mergedAt > issue.reopenedAt)));
     let desiredStatus: Status = issueStatus(issue) ?? 'backlog';
     if (issue.state === 'closed') desiredStatus = 'done';
     else if (executions.some(e => e.active)) desiredStatus = executions.some(e => e.ambiguous) ? 'blocked' : 'running';

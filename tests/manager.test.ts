@@ -135,4 +135,10 @@ describe('manager integration with simulated GitHub responses', () => {
     const { github, run } = setup(); const task = issue(1, ['harness:managed', 'harness:ready', 'harness:blocked', 'bug']); task.state = 'closed'; github.state.issues.push(task);
     await run(); expect(github.state.issues[0]!.labels).toEqual(['harness:managed', 'bug', 'harness:done']);
   });
+  it('respects human reopening after an earlier closing merge across repeat runs', async () => {
+    const { github, run } = setup(); const task = issue(1, ['harness:managed', 'harness:done']);
+    task.reopenedAt = '2026-11-06T09:30:00Z'; github.state.issues.push(task);
+    github.state.prs.push({ number: 2, state: 'closed', merged: true, mergedAt: '2026-11-06T09:00:00Z', closingIssues: [1], referencedIssues: [1] });
+    await run(); await run(); expect(github.state.issues[0]!.state).toBe('open');
+  });
 });

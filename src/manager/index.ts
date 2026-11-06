@@ -46,8 +46,11 @@ export class Manager {
       }
       case 'close_issue':
         await this.github.updateIssue(live.number, { state: 'closed', labels: withStatus(live, 'done') }); return true;
-      case 'approve_task':
-        await this.github.updateIssue(live.number, { labels: withStatus(live, 'ready') }); return true;
+      case 'approve_task': {
+        const labels = withStatus(live, 'ready');
+        if ([...live.labels].sort().join('\0') === [...labels].sort().join('\0')) return false;
+        await this.github.updateIssue(live.number, { labels }); return true;
+      }
       case 'prioritize': {
         const label = `harness:priority-${action.priority}`;
         if (live.labels.includes(label) && live.labels.filter(l => priorityLabels.includes(l)).length === 1) return false;

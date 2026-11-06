@@ -52,10 +52,14 @@ async function main(): Promise<void> {
     if (report.errors.length) process.exitCode = 1;
   } finally { clearTimeout(timer); }
 }
-main().catch(error => {
+main().catch(async error => {
   // Config errors are safe; API/request objects are deliberately never printed.
   const message = error instanceof Error ? error.message : '';
   const safe = /^(Invalid harness configuration|Invalid YAML|Supported commands|validate requires|Local mutations|Invalid worker|OPENAI_API_KEY|GITHUB_TOKEN|Repository must|Configuration must)/.test(message)
     ? message : 'Harness failed. Check repository access, contents:read, issues:write, pull-requests:read and actions:write permissions and installed default-branch workflow.';
-  console.error(JSON.stringify({ error: safe })); process.exitCode = 1;
+  const httpStatus = error instanceof Error && 'status' in error && typeof error.status === 'number' ? error.status : null;
+  const category = error instanceof Error ? error.name.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80) : 'UnknownError';
+  console.error(JSON.stringify({ error: safe, category, httpStatus }));
+  if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `# Dev Agent Harness failed\n\n${safe.replace(/[<>`]/g, '')}\n\nCategory: ${category}; HTTP: ${httpStatus ?? 'n/a'}\n`).catch(() => {});
+  process.exitCode = 1;
 });

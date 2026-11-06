@@ -20,13 +20,14 @@ describe('Octokit adapter against simulated REST and GraphQL HTTP responses', ()
       } }], pageInfo: { hasNextPage: false, endCursor: '' } } } } });
       expect(url.pathname.startsWith('/repos/owner/target')).toBe(true);
       if (url.pathname.endsWith('/issues/1/comments')) return json([]);
+      if (url.pathname.endsWith('/issues/1/timeline')) return json([]);
       if (url.pathname.endsWith('/issues')) {
         expect(url.searchParams.get('labels')).toBe('harness:managed');
         return json(url.searchParams.get('page') === '2' ? [] : [{ number: 1, title: 'task', body: '', state: 'open', labels: [{ name: 'harness:managed' }], updated_at: '2026-11-06T10:00:00Z' }],
           url.searchParams.get('page') === '2' ? {} : { link: '<https://api.github.com/repos/owner/target/issues?labels=harness%3Amanaged&page=2>; rel="next"' });
       }
       if (url.pathname.endsWith('/runs')) return json({ total_count: 0, workflow_runs: [] });
-      return json({ default_branch: 'main', has_issues: true, permissions: { push: true } });
+      return json({ default_branch: 'main', has_issues: true, permissions: { push: false } });
     }));
     const state = await gh.snapshot('harness-manager.yml'); expect(state.issues).toHaveLength(1);
     expect(state.prs[0]!.closingIssues).toEqual([1]); expect(state.prs[0]!.merged).toBe(true);

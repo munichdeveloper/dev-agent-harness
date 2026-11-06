@@ -7,7 +7,7 @@ import { encodeEvent, type HarnessEvent } from '../state/events.js';
 type RawIssue = { number: number; title: string; body?: string | null; state: string; labels: (string | { name?: string })[]; updated_at: string };
 const normalizeIssue = (i: RawIssue): Issue => ({ number: i.number, title: i.title, body: i.body ?? '',
   state: i.state === 'closed' ? 'closed' : 'open', labels: i.labels.map(l => typeof l === 'string' ? l : l.name ?? ''), updatedAt: i.updated_at });
-type PRNode = { number: number; state: string; merged: boolean; body: string;
+type PRNode = { number: number; state: string; merged: boolean; mergedAt: string | null; body: string;
   closingIssuesReferences: { nodes: { number: number; repository: { nameWithOwner: string } }[]; pageInfo: { hasNextPage: boolean } } };
 
 export class GitHubClient implements GitHubPort {
@@ -55,7 +55,7 @@ export class GitHubClient implements GitHubPort {
         query($owner:String!, $repo:String!, $cursor:String) {
           repository(owner:$owner, name:$repo) {
             pullRequests(first:50, after:$cursor, orderBy:{field:UPDATED_AT,direction:DESC}) {
-              nodes { number state merged body closingIssuesReferences(first:100) {
+              nodes { number state merged mergedAt body closingIssuesReferences(first:100) {
                 nodes { number repository { nameWithOwner } } pageInfo { hasNextPage }
               }} pageInfo { hasNextPage endCursor }
             }
@@ -64,7 +64,7 @@ export class GitHubClient implements GitHubPort {
       const connection = data.repository.pullRequests;
       for (const pr of connection.nodes) {
         if (pr.closingIssuesReferences.pageInfo.hasNextPage) throw new Error(`PR #${pr.number} has over 100 closing links; refusing incomplete reconciliation`);
-        result.push({ number: pr.number, state: pr.state === 'OPEN' ? 'open' : 'closed', merged: pr.merged,
+        result.push({ number: pr.number, state: pr.state === 'OPEN' ? 'open' : 'closed', merged: pr.merged, mergedAt: pr.mergedAt ?? undefined,
           closingIssues: pr.closingIssuesReferences.nodes.filter(i => i.repository.nameWithOwner.toLowerCase() === this.repository.toLowerCase()).map(i => i.number),
           referencedIssues: [...pr.body.matchAll(/(?<![\w/])#(\d+)\b/g)].map(m => Number(m[1])) });
       }
@@ -79,8 +79,15 @@ export class GitHubClient implements GitHubPort {
       this.pullRequests(), this.runs(workflow)
     ]);
     if (!repo.has_issues) throw new Error('GitHub Issues must be enabled');
-    if (repo.permissions && !repo.permissions.push) throw new Error('Token needs repository write access (issues:write, actions:write)');
+    // Repository push is contents-write, not issues/actions-write. A least-privilege
+    // GITHUB_TOKEN intentionally has push=false; concrete APIs enforce their own scopes.
     const issues = rows.filter(i => !i.pull_request).map(normalizeIssue);
+    // A human reopening after a merge supersedes that old completion proof.
+    for (const issue of issues.filter(i => i.state === 'open' && prs.some(p => p.merged && p.closingIssues.includes(i.number)))) {
+      const timeline = await this.api.paginate(this.api.issues.listEventsForTimeline, { ...this.target, issue_number: issue.number, per_page: 100 });
+      const reopenings = timeline.filter(e => e.event === 'reopened' && 'created_at' in e).map(e => 'created_at' in e ? e.created_at : undefined).filter((s): s is string => typeof s === 'string');
+      issue.reopenedAt = reopenings.sort().at(-1);
+    }
     const comments = new Map<number, Comment[]>();
     for (const issue of issues) comments.set(issue.number, await this.comments(issue.number));
     const dependencyStates = new Map<number, boolean>();

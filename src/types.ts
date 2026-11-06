@@ -19,9 +19,9 @@ export const actionSchema = z.strictObject({
 export const planSchema = z.strictObject({ version: z.literal(1), actions: z.array(actionSchema).max(100) });
 export type Action = z.infer<typeof actionSchema>;
 export type Plan = z.infer<typeof planSchema>;
-export interface Issue { number: number; title: string; body: string; state: 'open' | 'closed'; labels: string[]; updatedAt: string }
+export interface Issue { number: number; title: string; body: string; state: 'open' | 'closed'; labels: string[]; updatedAt: string; reopenedAt?: string }
 export interface Comment { id: number; body: string; author: string; createdAt: string }
-export interface PullRequest { number: number; state: 'open' | 'closed'; merged: boolean; closingIssues: number[]; referencedIssues: number[] }
+export interface PullRequest { number: number; state: 'open' | 'closed'; merged: boolean; mergedAt?: string; closingIssues: number[]; referencedIssues: number[] }
 export interface WorkflowRun { id: number; title: string; status: string; conclusion: string | null; createdAt: string; url: string }
 export interface Snapshot { issues: Issue[]; comments: Map<number, Comment[]>; prs: PullRequest[]; runs: WorkflowRun[]; defaultBranch: string; dependencyStates: Map<number, boolean> }
 export type Decision = { outcome: 'allow' | 'deny' | 'approval'; reason: string; actionId: string };
