@@ -43,6 +43,13 @@ filters are untrusted after agent execution. No GitHub writes occur here. Caller
 must validate paths/correlation and authorize publication in a fresh job; SF provides
 that integration. Coding success is an implementation proposal, not review or merge.
 
+For GitHub App dispatches, a reviewed caller may set `trusted-bot-users` to the
+explicit App bot login. The default is empty. Never derive this value from the
+request, issue text, or `github.actor`; that would authorize an arbitrary actor.
+This forwards the pinned official Codex Action's `allow-bot-users` input without
+granting repository write permissions to the coding job. The Temporal caller
+separately validates immutable inputs and requires its authenticated human gate.
+
 The optional `.github/workflows/run.yml` is a reusable single-execution adapter,
 with contents-read only and a structured result output. Its caller owns triggers,
 dispatch, concurrency and persistence. Pin both workflow and `harness-ref` to the

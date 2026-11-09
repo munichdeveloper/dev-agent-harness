@@ -13,6 +13,10 @@ inputs:
   openai-api-key:
     description: OpenAI credential supplied only to the official API proxy
     required: true
+  trusted-bot-users:
+    description: Explicit trusted GitHub App bot logins from the reviewed caller workflow; never derive from request or actor
+    required: false
+    default: ''
 outputs:
   artifact:
     description: Single-run result and bounded file manifest
@@ -68,6 +72,7 @@ runs:
         output-schema-file: ${{ steps.prepare.outputs.directory }}/message.schema.json
         output-file: ${{ steps.prepare.outputs.directory }}/output/message.json
         allow-bots: 'true'
+        allow-bot-users: ${{ inputs.trusted-bot-users }}
     - name: Collect bounded result
       shell: bash
       env:
