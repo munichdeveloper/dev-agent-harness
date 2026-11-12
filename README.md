@@ -43,6 +43,18 @@ filters are untrusted after agent execution. No GitHub writes occur here. Caller
 must validate paths/correlation and authorize publication in a fresh job; SF provides
 that integration. Coding success is an implementation proposal, not review or merge.
 
+Commands cannot open sockets by default. With `loopback: 'true'` (default `false`) they run in a
+private network namespace that only has `lo`: a dev server and a headless browser test on 127.0.0.1
+work, while other addresses, DNS and the host loopback with the API proxy stay unreachable. This uses
+Codex's experimental managed networking (`features.network_proxy`) with an empty domain allowlist.
+Because a profile with network enabled is unrestricted without that feature, the Action marks the
+checkout untrusted (its `.codex/config.toml` is not loaded), verifies the isolation with a probe before
+the model starts, and limits the account to loopback without DNS through `iptables`. That last layer
+alone would not hide the API proxy. `browser-cache` names a directory of Playwright browsers the
+caller installed under `RUNNER_TEMP` or `HOME`; it is bind-mounted read-only at
+`/home/codex-worker/.cache/ms-playwright`. Set both only in the reviewed caller workflow, never from
+the request. `scripts/test-coding-loopback.sh` exercises both on a runner without API credentials.
+
 For GitHub App dispatches, a reviewed caller may set `trusted-bot-users` to the
 explicit App bot login. The default is empty. Never derive this value from the
 request, issue text, or `github.actor`; that would authorize an arbitrary actor.

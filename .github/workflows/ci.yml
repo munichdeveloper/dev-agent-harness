@@ -45,3 +45,33 @@ jobs:
           tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" .github/workflows/*.yml
       - run: npm audit --audit-level=moderate
+  loopback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: munichdeveloper/dev-agent-harness
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - name: Exercise loopback isolation and read-only browser sharing without API credentials
+        run: bash scripts/test-coding-loopback.sh
+      - name: Verify official proxy setup on the pre-seeded loopback home without sending an API request
+        uses: openai/codex-action@1d82a3dba7c7988ec71ecae1ed5b8e8db96495c5
+        with:
+          openai-api-key: ci-fixture-not-a-real-api-key
+          codex-version: '0.167.0'
+          safety-strategy: unprivileged-user
+          codex-user: codex-worker
+      - name: Verify proxy server info permissions and merged configuration
+        run: |
+          test -s "/home/codex-worker/.codex/$GITHUB_RUN_ID.json"
+          sudo -u codex-worker test ! -w "/home/codex-worker/.codex/$GITHUB_RUN_ID.json"
+          grep -qx 'model_provider = "codex-action-responses-proxy"' /home/codex-worker/.codex/config.toml
+          grep -qxF '[permissions.harness-loopback.network]' /home/codex-worker/.codex/config.toml

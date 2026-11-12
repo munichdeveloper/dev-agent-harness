@@ -17,6 +17,14 @@ inputs:
     description: Explicit trusted GitHub App bot logins from the reviewed caller workflow; never derive from request or actor
     required: false
     default: ''
+  loopback:
+    description: Set 'true' to let commands bind and connect on a private loopback interface; all other network stays closed
+    required: false
+    default: 'false'
+  browser-cache:
+    description: Existing directory of Playwright browsers under RUNNER_TEMP or HOME from the reviewed caller workflow; shared read-only with the coding account
+    required: false
+    default: ''
 outputs:
   artifact:
     description: Single-run result and bounded file manifest
@@ -37,6 +45,7 @@ runs:
       env:
         HARNESS_REQUEST: ${{ inputs.request }}
         HARNESS_EXECUTION_ID: ${{ inputs.execution-id }}
+        HARNESS_LOOPBACK: ${{ inputs.loopback }}
       run: node "$GITHUB_ACTION_PATH/dist/coding-cli.js" prepare
     - name: Create isolated coding account
       id: account
@@ -58,13 +67,26 @@ runs:
         sudo install -d -o codex-worker -g codex-worker "$RUN_DIRECTORY/output"
         setsid bash "$GITHUB_ACTION_PATH/scripts/coding-deadline.sh" "$TIMEOUT" </dev/null >/dev/null 2>&1 &
         echo "deadline-pid=$!" >> "$GITHUB_OUTPUT"
+    - name: Share prepared browsers read-only
+      if: inputs.browser-cache != ''
+      shell: bash
+      env:
+        HARNESS_BROWSER_CACHE: ${{ inputs.browser-cache }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/coding-browser-cache.sh"
+    - name: Confine commands to a private loopback
+      if: steps.prepare.outputs.profile == 'harness-loopback'
+      shell: bash
+      env:
+        TARGET: ${{ inputs.workspace }}
+        CODEX_VERSION: '0.167.0' # keep equal to codex-version below
+      run: bash "$GITHUB_ACTION_PATH/scripts/coding-loopback.sh"
     - uses: openai/codex-action@1d82a3dba7c7988ec71ecae1ed5b8e8db96495c5 # v1
       with:
         openai-api-key: ${{ inputs.openai-api-key }}
         codex-version: '0.167.0'
         model: ${{ steps.prepare.outputs.model }}
         effort: ${{ steps.prepare.outputs.effort }}
-        permission-profile: ':workspace'
+        permission-profile: ${{ steps.prepare.outputs.profile }}
         safety-strategy: unprivileged-user
         codex-user: codex-worker
         working-directory: ${{ inputs.workspace }}

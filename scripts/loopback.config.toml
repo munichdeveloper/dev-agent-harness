@@ -1,0 +1,15 @@
+# Worker Codex configuration for the opt-in `loopback` Action input.
+# Managed networking runs each command in a private network namespace with only `lo`.
+# Its egress proxy has no allowed domain, so nothing leaves and host loopback stays unreachable.
+# Without the feature flag, `enabled = true` would mean unrestricted network: the preflight probe guards that.
+[features]
+network_proxy = true
+
+[permissions.harness-loopback]
+extends = ":workspace"
+
+[permissions.harness-loopback.network]
+enabled = true
+enable_socks5 = false
+allow_upstream_proxy = false
+allow_local_binding = true
