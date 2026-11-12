@@ -19,6 +19,7 @@ sudo chown -R codex-worker:codex-worker "$TARGET"
 HARNESS_BROWSER_CACHE="$RUNNER_TEMP/coding-loopback-link" refused bash scripts/coding-browser-cache.sh
 HARNESS_BROWSER_CACHE=/usr/share refused bash scripts/coding-browser-cache.sh
 bash scripts/coding-browser-cache.sh
+HARNESS_PROFILE=harness-loopback bash scripts/coding-home.sh
 bash scripts/coding-loopback.sh
 worker=(sudo -u codex-worker env HOME=/home/codex-worker CODEX_HOME=/home/codex-worker/.codex "PATH=$PATH")
 # Controls: the probe rejects the host namespace and the default profile, and the account has no egress or DNS.

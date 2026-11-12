@@ -1,10 +1,14 @@
-// Stand-in Responses API for the loopback test. Codex must reach it; the one command it requests must not.
+// Stand-in Responses API for the credential-free tests: a real codex exec runs one command it requests.
+// With the loopback profile Codex must reach this server and the command must not; otherwise the command only has to run.
 import { spawn } from 'node:child_process';
 import { readlinkSync } from 'node:fs';
 import { createServer } from 'node:http';
 import process from 'node:process';
 import { URL, fileURLToPath } from 'node:url';
 
+const profile = process.env.HARNESS_PROFILE ?? 'harness-loopback';
+const home = process.env.CODEX_HOME ?? '/home/codex-worker/.codex';
+const expected = profile === 'harness-loopback' ? 'isolated' : 'ran';
 let verdict = 'Codex returned no tool result';
 const event = value => `event: ${value.type}\ndata: ${JSON.stringify(value)}\n\n`;
 // The advertised tools depend on the model: top level or in an input item, possibly nested in namespaces.
@@ -27,10 +31,11 @@ const server = createServer((request, response) => {
     const port = server.address().port;
     const probe = fileURLToPath(new URL('loopback-probe.mjs', import.meta.url));
     // The shell computes both markers, so they appear in a later request only as output of a command that really ran.
-    const cmd = `echo started-$((${port}+1)); node ${probe} '${readlinkSync('/proc/self/ns/net')}' ${port} && echo isolated-$((${port}+2))`;
+    const cmd = `echo started-$((${port}+1))` + (expected === 'isolated' ? `; node ${probe} '${readlinkSync('/proc/self/ns/net')}' ${port} && echo isolated-$((${port}+2))` : '');
     const parsed = JSON.parse(body);
     const finished = /_call_output"/.test(body);
-    if (finished) verdict = !body.includes(`started-${port + 1}`) ? 'the command did not run' : body.includes(`isolated-${port + 2}`) ? 'isolated' : 'the command ran and was not isolated';
+    if (finished) verdict = !body.includes(`started-${port + 1}`) ? 'the command did not run' : expected === 'ran' ? 'ran'
+      : body.includes(`isolated-${port + 2}`) ? 'isolated' : 'the command ran and was not isolated';
     const item = finished ? { type: 'message', role: 'assistant', id: 'm1', content: [{ type: 'output_text', text: 'done' }] }
       : call([...advertised(parsed.tools), ...(parsed.input ?? []).flatMap(entry => advertised(entry.tools))], cmd);
     response.writeHead(200, { 'content-type': 'text/event-stream' }).end(event({ type: 'response.created', response: { id: 'r1' } }) +
@@ -39,9 +44,9 @@ const server = createServer((request, response) => {
   });
 }).listen(0, '127.0.0.1', () => {
   const provider = key => `model_providers.mock.${key}`;
-  spawn('sudo', ['-u', 'codex-worker', 'env', 'HOME=/home/codex-worker', 'CODEX_HOME=/home/codex-worker/.codex', `PATH=${process.env.PATH}`,
-    'codex', 'exec', '--skip-git-repo-check', '--cd', process.env.TARGET, '--model', process.env.MODEL ?? 'gpt-6.1-sol', '-c', 'default_permissions="harness-loopback"',
+  spawn('sudo', ['-u', 'codex-worker', 'env', 'HOME=/home/codex-worker', `CODEX_HOME=${home}`, `PATH=${process.env.PATH}`,
+    'codex', 'exec', '--skip-git-repo-check', '--cd', process.env.TARGET, '--model', process.env.MODEL ?? 'gpt-6.1-sol', '-c', `default_permissions="${profile}"`,
     '-c', 'model_provider="mock"', '-c', `${provider('name')}="mock"`, '-c', `${provider('wire_api')}="responses"`,
     '-c', `${provider('base_url')}="http://127.0.0.1:${server.address().port}/v1"`, 'probe'], { stdio: ['ignore', 'inherit', 'inherit'] })
-    .on('exit', status => { process.stdout.write(`codex exec: ${status}, ${verdict}\n`); process.exit(status === 0 && verdict === 'isolated' ? 0 : 1); });
+    .on('exit', status => { process.stdout.write(`codex exec: ${status}, ${verdict}\n`); process.exit(status === 0 && verdict === expected ? 0 : 1); });
 });

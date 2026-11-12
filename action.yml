@@ -73,6 +73,12 @@ runs:
       env:
         HARNESS_BROWSER_CACHE: ${{ inputs.browser-cache }}
       run: bash "$GITHUB_ACTION_PATH/scripts/coding-browser-cache.sh"
+    - name: Seed the Codex home with an untrusted checkout
+      shell: bash
+      env:
+        TARGET: ${{ inputs.workspace }}
+        HARNESS_PROFILE: ${{ steps.prepare.outputs.profile }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/coding-home.sh"
     - name: Confine commands to a private loopback
       if: steps.prepare.outputs.profile == 'harness-loopback'
       shell: bash

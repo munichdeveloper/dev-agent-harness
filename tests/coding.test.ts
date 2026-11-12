@@ -55,6 +55,13 @@ it('keeps loopback off by default and selects the permission profile from the pr
   expect(steps.find(step => step.uses?.startsWith('openai/codex-action@'))?.with?.['permission-profile']).toBe('${{ steps.prepare.outputs.profile }}');
   expect(steps.find(step => step.name === 'Confine commands to a private loopback')?.if).toBe("steps.prepare.outputs.profile == 'harness-loopback'");
   expect(steps.find(step => step.name === 'Share prepared browsers read-only')?.if).toBe("inputs.browser-cache != ''");
+  // The untrusted marking is unconditional and precedes both the loopback probe and the Codex Action.
+  const names = steps.map(step => step.name ?? step.uses ?? '');
+  const seed = names.indexOf('Seed the Codex home with an untrusted checkout');
+  expect(steps[seed]).not.toHaveProperty('if');
+  expect(seed).toBeGreaterThan(names.indexOf('Create isolated coding account'));
+  expect(seed).toBeLessThan(names.indexOf('Confine commands to a private loopback'));
+  expect(seed).toBeLessThan(names.findIndex(name => name.startsWith('openai/codex-action@')));
   const config = await readFile('scripts/loopback.config.toml', 'utf8');
   expect(config).toContain('[features]\nnetwork_proxy = true');
   expect(config).not.toMatch(/domains|= "allow"/);
