@@ -43,12 +43,20 @@ filters are untrusted after agent execution. No GitHub writes occur here. Caller
 must validate paths/correlation and authorize publication in a fresh job; SF provides
 that integration. Coding success is an implementation proposal, not review or merge.
 
-Commands cannot open sockets by default. With `loopback: 'true'` (default `false`) they run in a
+Commands cannot open sockets by default. `codex exec` would trust a writable checkout and load its
+`.codex/config.toml`, which can start host processes outside the command sandbox (for example
+`mcp_servers`) with ordinary network and a path to the API proxy. Every run therefore seeds
+`/home/codex-worker/.codex/config.toml` with the checkout marked untrusted before Codex starts: project-level
+Codex configuration, hooks and exec policies of the target repository are not loaded, `AGENTS.md` still is.
+`scripts/test-coding-home.sh` shows with a real `codex exec` against a stand-in API that such a server is
+started without the entry and not with it.
+
+With `loopback: 'true'` (default `false`) commands run in a
 private network namespace that only has `lo`: a dev server and a headless browser test on 127.0.0.1
 work, while other addresses, DNS and the host loopback with the API proxy stay unreachable. This uses
 Codex's experimental managed networking (`features.network_proxy`) with an empty domain allowlist.
-Because a profile with network enabled is unrestricted without that feature, the Action marks the
-checkout untrusted (its `.codex/config.toml` is not loaded), verifies the isolation with a probe before
+Because a profile with network enabled is unrestricted without that feature, the Action also
+verifies the isolation with a probe before
 the model starts, and limits the account to loopback without DNS through `iptables`. That last layer
 alone would not hide the API proxy. `browser-cache` names a directory of Playwright browsers the
 caller installed under `RUNNER_TEMP` or `HOME`; it is bind-mounted read-only at

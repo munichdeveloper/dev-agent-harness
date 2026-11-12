@@ -23,17 +23,22 @@ jobs:
       - run: npm run test:coverage
       - name: Exercise restricted Linux artifact collection without API credentials
         run: bash scripts/test-coding-account.sh
-      - name: Verify official shared proxy-home setup without sending an API request
+      - name: Exercise the untrusted checkout marking of the default profile without API credentials
+        run: bash scripts/test-coding-home.sh
+      - name: Verify official shared proxy-home setup on the pre-seeded default home without sending an API request
         uses: openai/codex-action@1d82a3dba7c7988ec71ecae1ed5b8e8db96495c5
         with:
           openai-api-key: ci-fixture-not-a-real-api-key
           codex-version: '0.167.0'
           safety-strategy: unprivileged-user
           codex-user: codex-worker
-      - name: Verify proxy server info permissions
+      - name: Verify proxy server info permissions and merged configuration
         run: |
           test -s "/home/codex-worker/.codex/$GITHUB_RUN_ID.json"
           sudo -u codex-worker test ! -w "/home/codex-worker/.codex/$GITHUB_RUN_ID.json"
+          grep -qx 'model_provider = "codex-action-responses-proxy"' /home/codex-worker/.codex/config.toml
+          grep -qxF "[projects.\"$RUNNER_TEMP/coding-home-target\"]" /home/codex-worker/.codex/config.toml
+          grep -qx 'trust_level = "untrusted"' /home/codex-worker/.codex/config.toml
       - name: Verify generated contracts are committed
         run: |
           npm run schemas
