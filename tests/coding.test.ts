@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { afterEach, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { browserCacheDirectory, codingPrompt, codingRequestSchema, collectCodingArtifact, validChangePath } from '../src/coding.js';
+import { browserCacheDirectory, codingPrompt, loopbackSentence, codingRequestSchema, collectCodingArtifact, validChangePath } from '../src/coding.js';
 
 const request = { contractVersion: '3.0', executionId: 'a'.repeat(32), worker: 'codex',
   task: { id: 'opaque:task-1', version: 'b'.repeat(64), description: 'Fix the bug', acceptanceCriteria: ['Tests pass'], contextReferences: [] },
@@ -43,9 +43,10 @@ it('explains caller context entries without changing the contract and mentions l
   expect(prompt.indexOf('sf-context ref <sha>')).toBeLessThan(prompt.indexOf('Task envelope:'));
   expect(prompt).toContain(JSON.stringify(input.task, null, 2));
   expect(prompt).not.toContain('127.0.0.1');
-  const sentence = 'Commands have no network access except loopback: local servers and browser tests against 127.0.0.1 can be run. ';
-  expect(codingPrompt(input, true)).toContain(sentence);
-  expect(codingPrompt(input, true).replace(sentence, '')).toBe(prompt);
+  for (const part of ['local servers and browser tests against 127.0.0.1 can be run', 'Package registries are unreachable',
+    "Playwright's bundled Chromium in headless mode", 'channel "chrome"']) expect(loopbackSentence).toContain(part);
+  expect(codingPrompt(input, true)).toContain(loopbackSentence);
+  expect(codingPrompt(input, true).replace(loopbackSentence, '')).toBe(prompt);
 });
 it('keeps loopback off by default and selects the permission profile from the prepared output', async () => {
   const action = parse(await readFile('action.yml', 'utf8'));
@@ -64,7 +65,9 @@ it('keeps loopback off by default and selects the permission profile from the pr
   expect(seed).toBeLessThan(names.findIndex(name => name.startsWith('openai/codex-action@')));
   const config = await readFile('scripts/loopback.config.toml', 'utf8');
   expect(config).toContain('[features]\nnetwork_proxy = true');
-  expect(config).not.toMatch(/domains|= "allow"/);
+  expect(config).not.toMatch(/domains|= "allow"|unix_sockets/);
+  expect(config).toContain('BASH_ENV = "/etc/codex-worker/commands.bash"');
+  expect(await readFile('scripts/coding-loopback.sh', 'utf8')).toContain('scripts/loopback-commands.bash" /etc/codex-worker/commands.bash');
 });
 it.runIf(process.platform !== 'win32')('accepts only a canonical browser cache directory below a runner root', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'coding-browsers-'))); directories.push(root);
