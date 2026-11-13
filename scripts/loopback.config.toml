@@ -13,3 +13,11 @@ enabled = true
 enable_socks5 = false
 allow_upstream_proxy = false
 allow_local_binding = true
+
+# Commands start without proxy variables (see loopback-commands.bash) and skip known incidental lookups.
+[shell_environment_policy.set]
+BASH_ENV = "/etc/codex-worker/commands.bash"
+NEXT_TELEMETRY_DISABLED = "1"
+NEXT_IGNORE_INCORRECT_LOCKFILE = "1"
+npm_config_update_notifier = "false"
+npm_config_offline = "true"

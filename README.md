@@ -58,10 +58,17 @@ Codex's experimental managed networking (`features.network_proxy`) with an empty
 Because a profile with network enabled is unrestricted without that feature, the Action also
 verifies the isolation with a probe before
 the model starts, and limits the account to loopback without DNS through `iptables`. That last layer
-alone would not hide the API proxy. `browser-cache` names a directory of Playwright browsers the
-caller installed under `RUNNER_TEMP` or `HOME`; it is bind-mounted read-only at
+alone would not hide the API proxy. Codex aborts a whole command when its managed proxy refuses a
+request, so commands start without proxy variables (`BASH_ENV` in `scripts/loopback-commands.bash`)
+and with npm and Next.js update checks and telemetry off: incidental lookups then fail fast inside
+the namespace and the command goes on. Unix sockets stay denied, because host sockets such as the
+DNS resolver's would be reachable through them; Chrome and full Chromium need one and cannot start,
+Playwright's headless shell (the default `chromium` in headless mode) can. `browser-cache` names a
+directory of Playwright browsers the caller installed under `RUNNER_TEMP` or `HOME` (for example
+`npx playwright install --only-shell chromium`); it is bind-mounted read-only at
 `/home/codex-worker/.cache/ms-playwright`. Set both only in the reviewed caller workflow, never from
-the request. `scripts/test-coding-loopback.sh` exercises both on a runner without API credentials.
+the request. `scripts/test-coding-loopback.sh` exercises both on a runner without API credentials,
+including a Playwright test against a local server inside a real `codex exec`.
 
 For GitHub App dispatches, a reviewed caller may set `trusted-bot-users` to the
 explicit App bot login. The default is empty. Never derive this value from the

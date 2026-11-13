@@ -11,6 +11,8 @@ for filter in iptables ip6tables; do
   sudo "$filter" -w -I OUTPUT -o lo -p tcp --dport 53 -m owner --uid-owner "$WORKER_UID" -j REJECT
   sudo "$filter" -w -I OUTPUT -o lo -p udp --dport 53 -m owner --uid-owner "$WORKER_UID" -j REJECT
 done
+sudo install -d -o root -g root -m 755 /etc/codex-worker
+sudo install -o root -g root -m 444 "$GITHUB_ACTION_PATH/scripts/loopback-commands.bash" /etc/codex-worker/commands.bash
 # Bubblewrap prerequisite on hosted Ubuntu images; the pinned Codex Action sets the same values later.
 sudo sysctl -qw kernel.unprivileged_userns_clone=1 2>/dev/null || true
 sudo sysctl -qw kernel.apparmor_restrict_unprivileged_userns=0 2>/dev/null || true
