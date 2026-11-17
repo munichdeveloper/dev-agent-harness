@@ -2,7 +2,7 @@
 // 127.0.0.1 only; the worker account gets the proxy address and a placeholder key, so the key is never readable by
 // the agent or its commands. Only model requests pass: no other endpoint, and no server-side tool (web search, web
 // fetch, code execution) or remote MCP server, because those would reach the network on the agent's behalf.
-import { createServer, type IncomingHttpHeaders } from 'node:http';
+import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { writeFileSync } from 'node:fs';
@@ -43,14 +43,18 @@ export function forwardHeaders(headers: IncomingHttpHeaders, key: string, length
   return { ...result, 'x-api-key': key, 'content-length': String(length) };
 }
 
-function main() {
-  const key = process.env.HARNESS_ANTHROPIC_API_KEY ?? '', portFile = process.env.HARNESS_PROXY_PORT_FILE ?? '';
-  if (!/^[\x21-\x7e]{20,300}$/.test(key) || !portFile) throw new Error('Proxy configuration rejected');
-  delete process.env.HARNESS_ANTHROPIC_API_KEY;
-  // Tests only: a stand-in API on this host's loopback. The Action never sets it.
-  const local = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})$/.exec(process.env.HARNESS_PROXY_UPSTREAM ?? '');
-  if (process.env.HARNESS_PROXY_UPSTREAM && !local) throw new Error('Proxy upstream rejected');
-  const send = local ? httpRequest : httpsRequest, upstreamHost = local ? '127.0.0.1' : 'api.anthropic.com', upstreamPort = local ? Number(local[1]) : 443;
+export interface ProxyOptions { key: string; upstream: { secure: boolean; host: string; port: number } }
+/** Parses the run's configuration; the upstream is the Anthropic API unless a test names a stand-in on this host's loopback. */
+export function proxyOptions(env: Record<string, string | undefined>): ProxyOptions {
+  const key = env.HARNESS_ANTHROPIC_API_KEY ?? '';
+  if (!/^[\x21-\x7e]{20,300}$/.test(key)) throw new Error('Proxy key rejected');
+  if (!env.HARNESS_PROXY_UPSTREAM) return { key, upstream: { secure: true, host: 'api.anthropic.com', port: 443 } };
+  const local = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})$/.exec(env.HARNESS_PROXY_UPSTREAM);
+  if (!local) throw new Error('Proxy upstream rejected');
+  return { key, upstream: { secure: false, host: '127.0.0.1', port: Number(local[1]) } };
+}
+export function startProxy({ key, upstream: target }: ProxyOptions): Promise<Server> {
+  const send = target.secure ? httpsRequest : httpRequest;
   const server = createServer((req, res) => {
     const chunks: Buffer[] = []; let size = 0;
     req.on('data', (chunk: Buffer) => { size += chunk.length; if (size > maxRequestBytes) { req.destroy(); return; } chunks.push(chunk); });
@@ -62,7 +66,7 @@ function main() {
         res.end(JSON.stringify({ type: 'error', error: { type: 'permission_error', message: `Refused by the harness proxy: ${reason}` } }));
         return;
       }
-      const upstream = send({ host: upstreamHost, port: upstreamPort, method: 'POST', path: req.url,
+      const upstream = send({ host: target.host, port: target.port, method: 'POST', path: req.url,
         headers: forwardHeaders(req.headers, key, body.length), timeout: 600000 }, response => {
         const headers: Record<string, string | string[]> = {};
         for (const [name, value] of Object.entries(response.headers)) {
@@ -77,10 +81,17 @@ function main() {
       upstream.end(body);
     });
   });
-  server.listen(0, '127.0.0.1', () => {
-    const address = server.address();
-    if (!address || typeof address === 'string') throw new Error('Proxy address unavailable');
-    writeFileSync(portFile, `${address.port}\n`, { flag: 'wx', mode: 0o644 });
-  });
+  return new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', () => resolve(server)); });
 }
-if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) main();
+
+/* c8 ignore start -- process entry point, exercised by scripts/test-claude-run.sh */
+async function main() {
+  const options = proxyOptions(process.env), portFile = process.env.HARNESS_PROXY_PORT_FILE ?? '';
+  delete process.env.HARNESS_ANTHROPIC_API_KEY;
+  if (!portFile) throw new Error('Proxy port file missing');
+  const address = (await startProxy(options)).address();
+  if (!address || typeof address === 'string') throw new Error('Proxy address unavailable');
+  writeFileSync(portFile, `${address.port}\n`, { flag: 'wx', mode: 0o644 });
+}
+if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) main().catch(() => { console.error('Proxy failed to start'); process.exitCode = 1; });
+/* c8 ignore stop */

@@ -1,7 +1,9 @@
 import { readFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { forwardHeaders, maxRequestBytes, refusal } from '../src/claude-proxy.js';
+import { forwardHeaders, maxRequestBytes, proxyOptions, refusal, startProxy } from '../src/claude-proxy.js';
 import { claudeMessage, codingPrompt, codingRequestSchema } from '../src/coding.js';
 
 const request = { contractVersion: '3.0', executionId: 'a'.repeat(32), worker: 'claude',
@@ -70,4 +72,32 @@ it('runs either Codex or Claude Code, each with its own credential and account',
   const script = await readFile('scripts/claude-run.sh', 'utf8');
   for (const part of ['--strict-mcp-config', '--disallowedTools WebFetch WebSearch', '--setting-sources user', 'unset HARNESS_ANTHROPIC_API_KEY',
     'ANTHROPIC_API_KEY=harness-proxy-placeholder', 'Network isolation of the Claude worker failed']) expect(script).toContain(part);
+});
+it('reads the key and allows only a loopback stand-in as upstream', () => {
+  const key = 'sk-ant-fixture-not-a-real-key-0123456789';
+  expect(proxyOptions({ HARNESS_ANTHROPIC_API_KEY: key })).toEqual({ key, upstream: { secure: true, host: 'api.anthropic.com', port: 443 } });
+  expect(proxyOptions({ HARNESS_ANTHROPIC_API_KEY: key, HARNESS_PROXY_UPSTREAM: 'http://127.0.0.1:8080' }).upstream).toEqual({ secure: false, host: '127.0.0.1', port: 8080 });
+  for (const upstream of ['http://example.com:80', 'https://127.0.0.1:1', 'http://127.0.0.1:0', 'http://127.0.0.1:1/x'])
+    expect(() => proxyOptions({ HARNESS_ANTHROPIC_API_KEY: key, HARNESS_PROXY_UPSTREAM: upstream })).toThrow('upstream');
+  for (const bad of [undefined, '', 'short', `${key} with space`]) expect(() => proxyOptions({ HARNESS_ANTHROPIC_API_KEY: bad })).toThrow('key');
+});
+it('forwards allowed requests with the real key and answers refused ones itself', async () => {
+  const seen: { url?: string; key?: string | string[]; body: string }[] = [];
+  const upstream = createServer((req, res) => { let body = ''; req.on('data', c => { body += c; }); req.on('end', () => {
+    seen.push({ url: req.url, key: req.headers['x-api-key'], body }); res.writeHead(200, { 'content-type': 'application/json', connection: 'close' }); res.end('{"ok":true}'); }); });
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const key = 'sk-ant-fixture-not-a-real-key-0123456789';
+  const proxy = await startProxy({ key, upstream: { secure: false, host: '127.0.0.1', port: (upstream.address() as AddressInfo).port } });
+  const url = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
+  try {
+    const ok = await fetch(`${url}/v1/messages?beta=true`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'placeholder' }, body: JSON.stringify(messages) });
+    expect(ok.status).toBe(200); expect(await ok.json()).toEqual({ ok: true });
+    expect(seen).toEqual([{ url: '/v1/messages?beta=true', key, body: JSON.stringify(messages) }]);
+    const refused = await fetch(`${url}/v1/files`, { method: 'POST', body: '{}' });
+    expect(refused.status).toBe(403); expect((await refused.json()).error.message).toContain('path');
+    expect(seen).toHaveLength(1);
+    upstream.close(); upstream.closeAllConnections();
+    const down = await fetch(`${url}/v1/messages`, { method: 'POST', body: JSON.stringify(messages) });
+    expect(down.status).toBe(502);
+  } finally { proxy.close(); upstream.close(); }
 });
