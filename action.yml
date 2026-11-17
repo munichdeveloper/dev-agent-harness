@@ -1,5 +1,5 @@
-name: Codex single-run Harness
-description: Execute one coding request; the caller owns authorization and publication
+name: Coding agent single-run Harness
+description: Execute one coding request with Codex or Claude Code; the caller owns authorization and publication
 inputs:
   request:
     description: Validated generic coding request v3.0
@@ -11,8 +11,13 @@ inputs:
     description: Absolute path to target checkout without persisted credentials
     required: true
   openai-api-key:
-    description: OpenAI credential supplied only to the official API proxy
-    required: true
+    description: OpenAI credential supplied only to the official API proxy; required when the request's worker is codex
+    required: false
+    default: ''
+  anthropic-api-key:
+    description: Anthropic credential supplied only to the harness credential proxy; required when the request's worker is claude
+    required: false
+    default: ''
   trusted-bot-users:
     description: Explicit trusted GitHub App bot logins from the reviewed caller workflow; never derive from request or actor
     required: false
@@ -47,6 +52,15 @@ runs:
         HARNESS_EXECUTION_ID: ${{ inputs.execution-id }}
         HARNESS_LOOPBACK: ${{ inputs.loopback }}
       run: node "$GITHUB_ACTION_PATH/dist/coding-cli.js" prepare
+    - name: Require the credential of the requested worker
+      shell: bash
+      env:
+        WORKER: ${{ steps.prepare.outputs.worker }}
+        HAS_OPENAI: ${{ inputs.openai-api-key != '' }}
+        HAS_ANTHROPIC: ${{ inputs.anthropic-api-key != '' }}
+      run: |
+        if [[ "$WORKER" == codex && "$HAS_OPENAI" != true ]]; then echo "The codex worker needs openai-api-key" >&2; exit 1; fi
+        if [[ "$WORKER" == claude && "$HAS_ANTHROPIC" != true ]]; then echo "The claude worker needs anthropic-api-key" >&2; exit 1; fi
     - name: Create isolated coding account
       id: account
       shell: bash
@@ -54,39 +68,44 @@ runs:
         TARGET: ${{ inputs.workspace }}
         RUN_DIRECTORY: ${{ steps.prepare.outputs.directory }}
         TIMEOUT: ${{ steps.prepare.outputs.timeout }}
+        ACCOUNT: ${{ steps.prepare.outputs.account }}
       run: |
         [[ "$RUNNER_OS" == Linux ]]
         [[ "$TARGET" == "$GITHUB_WORKSPACE/target" ]]
-        sudo adduser --system --home /home/codex-worker --shell /bin/bash --group codex-worker
+        [[ "$ACCOUNT" == codex-worker || "$ACCOUNT" == claude-worker ]]
+        sudo adduser --system --home "/home/$ACCOUNT" --shell /bin/bash --group "$ACCOUNT"
         sudo chmod o+x /home/runner /home/runner/work
-        sudo chmod o+x /home/codex-worker
-        sudo chown -R codex-worker:codex-worker "$TARGET"
+        sudo chmod o+x "/home/$ACCOUNT"
+        sudo chown -R "$ACCOUNT:$ACCOUNT" "$TARGET"
         sudo chmod -R u+rwX "$TARGET"
         chmod o+rx "$RUN_DIRECTORY"
-        chmod o+r "$RUN_DIRECTORY/prompt.txt" "$RUN_DIRECTORY/message.schema.json"
-        sudo install -d -o codex-worker -g codex-worker "$RUN_DIRECTORY/output"
-        setsid bash "$GITHUB_ACTION_PATH/scripts/coding-deadline.sh" "$TIMEOUT" </dev/null >/dev/null 2>&1 &
+        chmod o+r "$RUN_DIRECTORY/prompt.txt" "$RUN_DIRECTORY/message.schema.json" "$RUN_DIRECTORY/request.json"
+        sudo install -d -o "$ACCOUNT" -g "$ACCOUNT" "$RUN_DIRECTORY/output"
+        setsid bash "$GITHUB_ACTION_PATH/scripts/coding-deadline.sh" "$TIMEOUT" "$ACCOUNT" </dev/null >/dev/null 2>&1 &
         echo "deadline-pid=$!" >> "$GITHUB_OUTPUT"
     - name: Share prepared browsers read-only
       if: inputs.browser-cache != ''
       shell: bash
       env:
         HARNESS_BROWSER_CACHE: ${{ inputs.browser-cache }}
+        HARNESS_ACCOUNT: ${{ steps.prepare.outputs.account }}
       run: bash "$GITHUB_ACTION_PATH/scripts/coding-browser-cache.sh"
     - name: Seed the Codex home with an untrusted checkout
+      if: steps.prepare.outputs.worker == 'codex'
       shell: bash
       env:
         TARGET: ${{ inputs.workspace }}
         HARNESS_PROFILE: ${{ steps.prepare.outputs.profile }}
       run: bash "$GITHUB_ACTION_PATH/scripts/coding-home.sh"
     - name: Confine commands to a private loopback
-      if: steps.prepare.outputs.profile == 'harness-loopback'
+      if: steps.prepare.outputs.worker == 'codex' && steps.prepare.outputs.profile == 'harness-loopback'
       shell: bash
       env:
         TARGET: ${{ inputs.workspace }}
         CODEX_VERSION: '0.167.0' # keep equal to codex-version below
       run: bash "$GITHUB_ACTION_PATH/scripts/coding-loopback.sh"
     - uses: openai/codex-action@1d82a3dba7c7988ec71ecae1ed5b8e8db96495c5 # v1
+      if: steps.prepare.outputs.worker == 'codex'
       with:
         openai-api-key: ${{ inputs.openai-api-key }}
         codex-version: '0.167.0'
@@ -101,9 +120,22 @@ runs:
         output-file: ${{ steps.prepare.outputs.directory }}/output/message.json
         allow-bots: 'true'
         allow-bot-users: ${{ inputs.trusted-bot-users }}
+    - name: Run Claude Code behind the credential proxy
+      if: steps.prepare.outputs.worker == 'claude'
+      shell: bash
+      env:
+        TARGET: ${{ inputs.workspace }}
+        RUN_DIRECTORY: ${{ steps.prepare.outputs.directory }}
+        HARNESS_MODEL: ${{ steps.prepare.outputs.model }}
+        HARNESS_EFFORT: ${{ steps.prepare.outputs.effort }}
+        HARNESS_LOOPBACK: ${{ steps.prepare.outputs.loopback }}
+        HARNESS_ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        CLAUDE_CODE_VERSION: '2.1.318'
+      run: bash "$GITHUB_ACTION_PATH/scripts/claude-run.sh"
     - name: Collect bounded result
       shell: bash
       env:
+        HARNESS_ACCOUNT: ${{ steps.prepare.outputs.account }}
         HARNESS_EXECUTION_ID: ${{ inputs.execution-id }}
         HARNESS_WORKSPACE: ${{ inputs.workspace }}
         RUN_DIRECTORY: ${{ steps.prepare.outputs.directory }}
@@ -113,6 +145,9 @@ runs:
       shell: bash
       env:
         DEADLINE_PID: ${{ steps.account.outputs.deadline-pid }}
+        ACCOUNT: ${{ steps.prepare.outputs.account }}
+        RUN_DIRECTORY: ${{ steps.prepare.outputs.directory }}
       run: |
         if [[ "$DEADLINE_PID" =~ ^[0-9]+$ ]]; then kill -- "-$DEADLINE_PID" || true; fi
-        sudo pkill -KILL -u codex-worker || true
+        if [[ "$ACCOUNT" == codex-worker || "$ACCOUNT" == claude-worker ]]; then sudo pkill -KILL -u "$ACCOUNT" || true; fi
+        if [[ "$ACCOUNT" == claude-worker ]]; then bash "$GITHUB_ACTION_PATH/scripts/claude-cleanup.sh"; fi

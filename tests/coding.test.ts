@@ -54,12 +54,12 @@ it('keeps loopback off by default and selects the permission profile from the pr
   expect(action.inputs['browser-cache'].default).toBe('');
   const steps = action.runs.steps as { name?: string; if?: string; uses?: string; with?: Record<string, string> }[];
   expect(steps.find(step => step.uses?.startsWith('openai/codex-action@'))?.with?.['permission-profile']).toBe('${{ steps.prepare.outputs.profile }}');
-  expect(steps.find(step => step.name === 'Confine commands to a private loopback')?.if).toBe("steps.prepare.outputs.profile == 'harness-loopback'");
+  expect(steps.find(step => step.name === 'Confine commands to a private loopback')?.if).toBe("steps.prepare.outputs.worker == 'codex' && steps.prepare.outputs.profile == 'harness-loopback'");
   expect(steps.find(step => step.name === 'Share prepared browsers read-only')?.if).toBe("inputs.browser-cache != ''");
-  // The untrusted marking is unconditional and precedes both the loopback probe and the Codex Action.
+  // The untrusted marking runs for every Codex run and precedes both the loopback probe and the Codex Action.
   const names = steps.map(step => step.name ?? step.uses ?? '');
   const seed = names.indexOf('Seed the Codex home with an untrusted checkout');
-  expect(steps[seed]).not.toHaveProperty('if');
+  expect(steps[seed]?.if).toBe("steps.prepare.outputs.worker == 'codex'");
   expect(seed).toBeGreaterThan(names.indexOf('Create isolated coding account'));
   expect(seed).toBeLessThan(names.indexOf('Confine commands to a private loopback'));
   expect(seed).toBeLessThan(names.findIndex(name => name.startsWith('openai/codex-action@')));
