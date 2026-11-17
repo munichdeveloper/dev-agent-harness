@@ -1,6 +1,6 @@
 # Dev Agent Harness
 
-Version **0.3.2**, test execution contract **2.0**, coding request/artifact **3.0**. Execute one explicitly supplied
+Version **0.4.0**, test execution contract **2.0**, coding request/artifact **3.0**. Execute one explicitly supplied
 worker request and return one structured result. This package has no task queue,
 project scope, planner, approvals, repository lifecycle, scheduling, retry policy
 or worker supervision. Those functions live in
@@ -69,6 +69,30 @@ directory of Playwright browsers the caller installed under `RUNNER_TEMP` or `HO
 `/home/codex-worker/.cache/ms-playwright`. Set both only in the reviewed caller workflow, never from
 the request. `scripts/test-coding-loopback.sh` exercises both on a runner without API credentials,
 including a Playwright test against a local server inside a real `codex exec`.
+
+### Claude Code worker
+
+A request with `worker: "claude"` runs the pinned Claude Code CLI (`@anthropic-ai/claude-code`, version in
+`action.yml`) in print mode as the separate non-sudo account `claude-worker`, with the request's `model`
+(`claude-…`, for example `claude-opus-5-5` or `claude-sonnet-5-5`) and `effort` (`low` to `max`; `max` is Claude only).
+The caller passes `anthropic-api-key`; `openai-api-key` is then not needed, and the reverse for Codex.
+
+- **Credential**: the key goes only to `src/claude-proxy.ts`, which runs as the runner account on 127.0.0.1 and
+  injects it upstream. The worker gets the proxy address and a placeholder key. The proxy forwards only
+  `POST /v1/messages` (and `count_tokens`) with Claude models, and refuses server-side tools (web search, web fetch,
+  code execution), `mcp_servers` and `container`, because those would reach the network on the agent's behalf.
+- **Network**: an `iptables` chain for the account allows only the proxy port on 127.0.0.1, and with `loopback: 'true'`
+  also other loopback ports (no DNS). Everything else, including IPv6, is rejected; a preflight checks that the API
+  host and an outside address are unreachable for the account before the model starts. Unlike Codex there is no
+  separate network namespace: with `loopback` the commands share the host loopback, so do not run other services on
+  the loopback of a self-hosted runner. Commands can reach the proxy and so use the run's model budget, never the key.
+- **Checkout configuration**: `--setting-sources user`, `--settings` from the run directory with all hooks disabled,
+  and `--strict-mcp-config` keep the checkout's `.claude/settings*.json` hooks and `.mcp.json` servers from loading;
+  `CLAUDE.md` is still read. `WebFetch` and `WebSearch` are disallowed.
+- **Result**: the runner captures the stream (`--output-format stream-json --json-schema`) outside the worker's reach,
+  logs only the names of the tools used, and collection validates the final structured output like the Codex message.
+
+`scripts/test-claude-run.sh` runs a real Claude Code run against a stand-in API in CI, without API credentials.
 
 For GitHub App dispatches, a reviewed caller may set `trusted-bot-users` to the
 explicit App bot login. The default is empty. Never derive this value from the
