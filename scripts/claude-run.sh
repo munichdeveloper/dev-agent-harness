@@ -74,3 +74,17 @@ jq -r 'select(.type == "assistant") | .message.content[]? | select(.type == "too
 jq -c 'select(.type == "result")' "$STREAM" 2>/dev/null | tail -n 1 > "$RUN_DIRECTORY/claude.json" || true
 jq -r '"result: \(.subtype) turns=\(.num_turns) cost_usd=\(.total_cost_usd)"' "$RUN_DIRECTORY/claude.json" 2>/dev/null || true
 chmod 644 "$RUN_DIRECTORY/claude.json"
+# Why a run did not end cleanly: the result's error state, whether the structured message is there, Claude Code's
+# error text (an API error such as a credit or rate limit) and the proxy's upstream errors. One bounded line each,
+# printable characters only; tool inputs and outputs stay out of the log.
+if [[ "$STATUS" -ne 0 ]] || ! jq -e '.is_error == false and has("structured_output")' "$RUN_DIRECTORY/claude.json" >/dev/null 2>&1; then
+  if [[ -s "$RUN_DIRECTORY/claude.json" ]]; then
+    jq -r '"diagnosis: is_error=\(.is_error) subtype=\(.subtype) structured_output=\(if has("structured_output") and .structured_output != null then "present" else "missing" end)"' \
+      "$RUN_DIRECTORY/claude.json" 2>/dev/null || true
+    jq -r '[(if .is_error == true and .result != null then .result else empty end), (.errors // [] | .[]? | tostring)] | .[:5][]
+      | tostring | gsub("[^ -~]+"; " ") | .[:500] | "diagnosis error: \(.)"' "$RUN_DIRECTORY/claude.json" 2>/dev/null || true
+  else
+    echo "diagnosis: no result line; last stream events: $(jq -r '.type + (if .subtype then "/" + .subtype else "" end)' "$STREAM" 2>/dev/null | tail -n 5 | tr '\n' ' ')"
+  fi
+  grep -E '^(Upstream|Refused)' "$RUN_DIRECTORY/proxy.log" 2>/dev/null | tail -n 10 | cut -c1-500 | sed 's/^/diagnosis proxy: /' || true
+fi

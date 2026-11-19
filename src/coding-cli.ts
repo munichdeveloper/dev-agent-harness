@@ -2,6 +2,7 @@ import { appendFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import { browserCacheDirectory, claudeMessage, codingMessageSchema, codingPrompt, codingRequestSchema, codingWorkers, collectCodingArtifact } from './coding.js';
+import { rejectionReason } from './rejection.js';
 import { claudeOutcome, codexSessionTokens, proxyUsageSchema, usageRecordSchema } from './usage.js';
 
 async function optional(path: string, limit: number): Promise<string | null> {
@@ -60,4 +61,4 @@ async function main(): Promise<void> {
     console.log(await browserCacheDirectory(process.env.HARNESS_BROWSER_CACHE ?? '', [process.env.RUNNER_TEMP, process.env.HOME]));
   } else throw new Error('Invalid coding command');
 }
-main().catch(() => { console.error('Coding request or artifact rejected'); process.exitCode = 1; });
+main().catch((error: unknown) => { console.error(`Coding request or artifact rejected: ${rejectionReason(error)}`); process.exitCode = 1; });

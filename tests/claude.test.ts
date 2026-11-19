@@ -3,7 +3,8 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { forwardHeaders, maxRequestBytes, proxyOptions, refusal, startProxy } from '../src/claude-proxy.js';
+import { forwardHeaders, logText, maxRequestBytes, proxyOptions, refusal, startProxy, upstreamErrorLine } from '../src/claude-proxy.js';
+import { rejectionReason } from '../src/rejection.js';
 import { claudeMessage, codingPrompt, codingRequestSchema } from '../src/coding.js';
 
 const request = { contractVersion: '3.0', executionId: 'a'.repeat(32), worker: 'claude',
@@ -100,4 +101,23 @@ it('forwards allowed requests with the real key and answers refused ones itself'
     const down = await fetch(`${url}/v1/messages`, { method: 'POST', body: JSON.stringify(messages) });
     expect(down.status).toBe(502);
   } finally { proxy.close(); upstream.close(); }
+});
+it('logs why an upstream answer failed without anything but the API error', () => {
+  expect(upstreamErrorLine(400, '/v1/messages', JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'Your credit balance is too low' } })))
+    .toBe('Upstream 400 /v1/messages: invalid_request_error: Your credit balance is too low');
+  expect(upstreamErrorLine(529, '/v1/messages', 'not json')).toBe('Upstream 529 /v1/messages');
+  expect(upstreamErrorLine(429, '/v1/messages', JSON.stringify({ error: { type: 'rate_limit_error', message: 'a\nb'.repeat(200) } })))
+    .toMatch(/^Upstream 429 \/v1\/messages: rate_limit_error: a b.{290,}\.\.\.$/);
+  expect(logText('x\u0000y\u001b[31m z')).toBe('x y [31m z');
+});
+it('names the reason an artifact was rejected without echoing worker values', () => {
+  const missing = (() => { try { claudeMessage({ type: 'result', is_error: false }); } catch (error) { return error; } })();
+  expect(rejectionReason(missing)).toBe('structured_output: Invalid input: expected nonoptional, received undefined');
+  const failed = (() => { try { claudeMessage({ type: 'result', is_error: true, structured_output: { status: 'success', summary: 'secret' } }); } catch (error) { return error; } })();
+  expect(rejectionReason(failed)).toMatch(/^is_error: /);
+  expect(rejectionReason(failed)).not.toContain('secret');
+  expect(rejectionReason(new Error('Too many changed files'))).toBe('Too many changed files');
+  expect(rejectionReason(Object.assign(new Error('ENOENT: /x'), { code: 'ENOENT' }))).toBe('file missing');
+  expect(rejectionReason(new SyntaxError('Unexpected token'))).toBe('invalid JSON');
+  expect(rejectionReason('x')).toBe('unknown error');
 });
