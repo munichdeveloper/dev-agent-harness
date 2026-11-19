@@ -55,7 +55,7 @@ it('meters billed responses through the proxy and writes the running total', asy
   await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
   const usageFile = join(await mkdtemp(join(tmpdir(), 'usage-')), 'proxy-usage.json');
   const seen: number[] = [];
-  const proxy = await startProxy({ key: 'sk-ant-fixture-not-a-real-key-0123456789', usageFile,
+  const proxy = await startProxy({ credential: { kind: 'api-key', value: 'sk-ant-fixture-not-a-real-key-0123456789' }, usageFile,
     upstream: { secure: false, host: '127.0.0.1', port: (upstream.address() as AddressInfo).port } }, usage => seen.push(usage.requests));
   const url = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
   const body = JSON.stringify({ model: 'claude-opus-5-5', max_tokens: 10, messages: [] });

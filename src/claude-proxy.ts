@@ -1,6 +1,6 @@
-// Credential proxy for one Claude run. It runs as the runner account, holds the Anthropic key and listens on
-// 127.0.0.1 only; the worker account gets the proxy address and a placeholder key, so the key is never readable by
-// the agent or its commands. Only model requests pass: no other endpoint, and no server-side tool (web search, web
+// Credential proxy for one Claude run. It runs as the runner account, holds the credential (an Anthropic API key, or
+// the OAuth token of a Claude subscription from `claude setup-token`) and listens on 127.0.0.1 only; the worker account
+// gets the proxy address and a placeholder, so the credential is never readable by the agent or its commands. Only model requests pass: no other endpoint, and no server-side tool (web search, web
 // fetch, code execution) or remote MCP server, because those would reach the network on the agent's behalf.
 import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
 import { request as httpRequest } from 'node:http';
@@ -38,10 +38,17 @@ export function refusal(method: string | undefined, url: string | undefined, hea
   return null;
 }
 
-export function forwardHeaders(headers: IncomingHttpHeaders, key: string, length: number): Record<string, string> {
+/** An API key goes upstream as x-api-key; a subscription's OAuth token as a bearer token. */
+export interface ProxyCredential { kind: 'api-key' | 'oauth'; value: string }
+/** The beta flag the Messages API requires for OAuth tokens; Claude Code sends it itself in OAuth mode. */
+export const oauthBeta = 'oauth-2025-04-20';
+export function forwardHeaders(headers: IncomingHttpHeaders, credential: ProxyCredential, length: number): Record<string, string> {
   const result: Record<string, string> = {};
   for (const name of forwardedHeaders) { const value = headers[name]; if (typeof value === 'string') result[name] = value; }
-  return { ...result, 'x-api-key': key, 'content-length': String(length) };
+  if (credential.kind === 'api-key') return { ...result, 'x-api-key': credential.value, 'content-length': String(length) };
+  const betas = (result['anthropic-beta'] ?? '').split(',').map(b => b.trim()).filter(Boolean);
+  if (!betas.includes(oauthBeta)) betas.push(oauthBeta);
+  return { ...result, 'anthropic-beta': betas.join(','), authorization: `Bearer ${credential.value}`, 'content-length': String(length) };
 }
 
 /** Printable single-line text, bounded, for diagnostics in the job log. */
@@ -65,18 +72,23 @@ export function upstreamErrorLine(status: number, path: string, body: string): s
   return `Upstream ${status} ${path}${detail ? `: ${detail}` : ''}`;
 }
 
-export interface ProxyOptions { key: string; upstream: { secure: boolean; host: string; port: number }; usageFile?: string }
-/** Parses the run's configuration; the upstream is the Anthropic API unless a test names a stand-in on this host's loopback. */
+export interface ProxyOptions { credential: ProxyCredential; upstream: { secure: boolean; host: string; port: number }; usageFile?: string }
+/**
+ * Parses the run's configuration: exactly one of HARNESS_ANTHROPIC_API_KEY and HARNESS_CLAUDE_OAUTH_TOKEN. The upstream
+ * is the Anthropic API unless a test names a stand-in on this host's loopback.
+ */
 export function proxyOptions(env: Record<string, string | undefined>): ProxyOptions {
-  const key = env.HARNESS_ANTHROPIC_API_KEY ?? '';
-  if (!/^[\x21-\x7e]{20,300}$/.test(key)) throw new Error('Proxy key rejected');
+  const key = env.HARNESS_ANTHROPIC_API_KEY ?? '', token = env.HARNESS_CLAUDE_OAUTH_TOKEN ?? '';
+  if (key && token) throw new Error('Proxy key rejected: pass either an API key or an OAuth token');
+  const credential: ProxyCredential = token ? { kind: 'oauth', value: token } : { kind: 'api-key', value: key };
+  if (!/^[\x21-\x7e]{20,300}$/.test(credential.value)) throw new Error('Proxy key rejected');
   const usageFile = env.HARNESS_PROXY_USAGE_FILE ? { usageFile: env.HARNESS_PROXY_USAGE_FILE } : {};
-  if (!env.HARNESS_PROXY_UPSTREAM) return { key, upstream: { secure: true, host: 'api.anthropic.com', port: 443 }, ...usageFile };
+  if (!env.HARNESS_PROXY_UPSTREAM) return { credential, upstream: { secure: true, host: 'api.anthropic.com', port: 443 }, ...usageFile };
   const local = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})$/.exec(env.HARNESS_PROXY_UPSTREAM);
   if (!local) throw new Error('Proxy upstream rejected');
-  return { key, upstream: { secure: false, host: '127.0.0.1', port: Number(local[1]) }, ...usageFile };
+  return { credential, upstream: { secure: false, host: '127.0.0.1', port: Number(local[1]) }, ...usageFile };
 }
-export function startProxy({ key, upstream: target, usageFile }: ProxyOptions, onUsage?: (usage: ProxyUsage) => void): Promise<Server> {
+export function startProxy({ credential, upstream: target, usageFile }: ProxyOptions, onUsage?: (usage: ProxyUsage) => void): Promise<Server> {
   const send = target.secure ? httpsRequest : httpRequest;
   // The running total of the usage the API reported, rewritten after every response so a killed run still leaves it.
   let usage = emptyProxyUsage();
@@ -99,7 +111,7 @@ export function startProxy({ key, upstream: target, usageFile }: ProxyOptions, o
         return;
       }
       const upstream = send({ host: target.host, port: target.port, method: 'POST', path: req.url,
-        headers: forwardHeaders(req.headers, key, body.length), timeout: 600000 }, response => {
+        headers: forwardHeaders(req.headers, credential, body.length), timeout: 600000 }, response => {
         const headers: Record<string, string | string[]> = {};
         for (const [name, value] of Object.entries(response.headers)) {
           if (value !== undefined && !['connection', 'keep-alive', 'transfer-encoding'].includes(name)) headers[name] = value;
@@ -132,7 +144,7 @@ export function startProxy({ key, upstream: target, usageFile }: ProxyOptions, o
 /* c8 ignore start -- process entry point, exercised by scripts/test-claude-run.sh */
 async function main() {
   const options = proxyOptions(process.env), portFile = process.env.HARNESS_PROXY_PORT_FILE ?? '';
-  delete process.env.HARNESS_ANTHROPIC_API_KEY;
+  delete process.env.HARNESS_ANTHROPIC_API_KEY; delete process.env.HARNESS_CLAUDE_OAUTH_TOKEN;
   if (!portFile) throw new Error('Proxy port file missing');
   const address = (await startProxy(options)).address();
   if (!address || typeof address === 'string') throw new Error('Proxy address unavailable');

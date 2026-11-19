@@ -13,7 +13,7 @@ const steps = [
 const server = http.createServer((req, res) => {
   const chunks = []; req.on('data', c => chunks.push(c)); req.on('end', () => {
     const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
-    appendFileSync(log, JSON.stringify({ path: req.url, key: req.headers['x-api-key'], authorization: req.headers.authorization ?? null,
+    appendFileSync(log, JSON.stringify({ path: req.url, key: req.headers['x-api-key'], authorization: req.headers.authorization ?? null, beta: req.headers['anthropic-beta'] ?? '',
       tools: (body.tools ?? []).map(t => t.name) }) + '\n');
     const done = JSON.stringify(body.messages ?? []).split('"tool_result"').length - 1;
     const step = steps[done], content = step ? [{ type: 'tool_use', id: `toolu_${done}`, name: step.name, input: step.input }] : [{ type: 'text', text: 'Finished' }];

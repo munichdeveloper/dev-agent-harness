@@ -75,9 +75,14 @@ including a Playwright test against a local server inside a real `codex exec`.
 A request with `worker: "claude"` runs the pinned Claude Code CLI (`@anthropic-ai/claude-code`, version in
 `action.yml`) in print mode as the separate non-sudo account `claude-worker`, with the request's `model`
 (`claude-…`, for example `claude-opus-5-5` or `claude-sonnet-5-5`) and `effort` (`low` to `max`; `max` is Claude only).
-The caller passes `anthropic-api-key`; `openai-api-key` is then not needed, and the reverse for Codex.
+The caller passes `anthropic-api-key`, or instead `claude-oauth-token`, the long-lived OAuth token of a Claude
+subscription (`claude setup-token`); `openai-api-key` is then not needed, and the reverse for Codex. Passing both
+Claude credentials fails the run. With the OAuth token Claude Code runs in OAuth mode against the proxy, which sends
+the token upstream as `Authorization: Bearer` with the `oauth-2025-04-20` beta flag instead of `x-api-key`; the
+run then counts against the subscription's usage limits, and `total_cost_usd` is Claude Code's list-price estimate,
+not a charge.
 
-- **Credential**: the key goes only to `src/claude-proxy.ts`, which runs as the runner account on 127.0.0.1 and
+- **Credential**: the key (or OAuth token) goes only to `src/claude-proxy.ts`, which runs as the runner account on 127.0.0.1 and
   injects it upstream. The worker gets the proxy address and a placeholder key. The proxy forwards only
   `POST /v1/messages` (and `count_tokens`) with Claude models, and refuses server-side tools (web search, web fetch,
   code execution), `mcp_servers` and `container`, because those would reach the network on the agent's behalf.
@@ -95,7 +100,8 @@ The caller passes `anthropic-api-key`; `openai-api-key` is then not needed, and 
 - **Spend cap**: an optional `limits.maxCostUsd` in the request becomes `--max-budget-usd`; Claude Code then stops
   with the result subtype `error_max_budget_usd`. Codex has no such limit.
 
-`scripts/test-claude-run.sh` runs a real Claude Code run against a stand-in API in CI, without API credentials.
+`scripts/test-claude-run.sh` runs a real Claude Code run against a stand-in API in CI, without API credentials, once
+with an API key and once (`HARNESS_TEST_CREDENTIAL=oauth`) with an OAuth token.
 
 ### Token usage
 

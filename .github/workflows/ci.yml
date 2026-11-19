@@ -83,6 +83,10 @@ jobs:
   claude:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      matrix:
+        # The API key and a subscription's OAuth token (claude setup-token) take the same isolated path.
+        credential: [api-key, oauth]
     permissions:
       contents: read
     steps:
@@ -96,4 +100,6 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run build
       - name: Exercise a real Claude Code run against a stand-in API, with credential proxy and network isolation
+        env:
+          HARNESS_TEST_CREDENTIAL: ${{ matrix.credential }}
         run: bash scripts/test-claude-run.sh

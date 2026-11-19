@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { forwardHeaders, logText, maxRequestBytes, proxyOptions, refusal, startProxy, upstreamErrorLine } from '../src/claude-proxy.js';
+import { forwardHeaders, logText, maxRequestBytes, oauthBeta, proxyOptions, refusal, startProxy, upstreamErrorLine } from '../src/claude-proxy.js';
 import { rejectionReason } from '../src/rejection.js';
 import { claudeMessage, codingPrompt, codingRequestSchema } from '../src/coding.js';
 
@@ -50,8 +50,16 @@ it('forwards only model requests without server tools or remote servers', () => 
 });
 it('replaces any client credential with the proxy key and drops unlisted headers', () => {
   const headers = forwardHeaders({ 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': 'placeholder',
-    authorization: 'Bearer stolen', host: 'evil.invalid', cookie: 'a=b' }, 'sk-ant-real', 12);
+    authorization: 'Bearer stolen', host: 'evil.invalid', cookie: 'a=b' }, { kind: 'api-key', value: 'sk-ant-real' }, 12);
   expect(headers).toEqual({ 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': 'sk-ant-real', 'content-length': '12' });
+});
+it('sends a subscription OAuth token as bearer token with the OAuth beta flag, never as x-api-key', () => {
+  const credential = { kind: 'oauth' as const, value: 'sk-ant-oat01-real' };
+  const headers = forwardHeaders({ 'content-type': 'application/json', 'x-api-key': 'placeholder', authorization: 'Bearer harness-proxy-placeholder',
+    'anthropic-beta': `claude-code-20250219,${oauthBeta}` }, credential, 5);
+  expect(headers).toEqual({ 'content-type': 'application/json', 'anthropic-beta': `claude-code-20250219,${oauthBeta}`, authorization: 'Bearer sk-ant-oat01-real', 'content-length': '5' });
+  expect(forwardHeaders({ 'anthropic-beta': 'a-1' }, credential, 1)['anthropic-beta']).toBe(`a-1,${oauthBeta}`);
+  expect(forwardHeaders({}, credential, 1)['anthropic-beta']).toBe(oauthBeta);
 });
 it('runs either Codex or Claude Code, each with its own credential and account', async () => {
   const action = parse(await readFile('action.yml', 'utf8'));
@@ -63,11 +71,14 @@ it('runs either Codex or Claude Code, each with its own credential and account',
   const claude = steps.find(step => step.name === 'Run Claude Code behind the credential proxy')!;
   expect(claude.if).toBe("steps.prepare.outputs.worker == 'claude'");
   expect(claude.env?.HARNESS_ANTHROPIC_API_KEY).toBe('${{ inputs.anthropic-api-key }}');
+  expect(claude.env?.HARNESS_CLAUDE_OAUTH_TOKEN).toBe('${{ inputs.claude-oauth-token }}');
+  expect(action.inputs['claude-oauth-token'].default).toBe('');
   expect(claude.env?.CLAUDE_CODE_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   // Only the Claude step sees the Anthropic key, only the Codex Action the OpenAI key.
   for (const step of steps) {
     const text = JSON.stringify(step);
     if (step !== claude) expect(text).not.toContain('inputs.anthropic-api-key }}');
+    if (step !== claude) expect(text).not.toContain('inputs.claude-oauth-token }}');
     if (!step.uses?.startsWith('openai/codex-action@')) expect(text).not.toContain('inputs.openai-api-key }}');
   }
   const script = await readFile('scripts/claude-run.sh', 'utf8');
@@ -76,7 +87,11 @@ it('runs either Codex or Claude Code, each with its own credential and account',
 });
 it('reads the key and allows only a loopback stand-in as upstream', () => {
   const key = 'sk-ant-fixture-not-a-real-key-0123456789';
-  expect(proxyOptions({ HARNESS_ANTHROPIC_API_KEY: key })).toEqual({ key, upstream: { secure: true, host: 'api.anthropic.com', port: 443 } });
+  expect(proxyOptions({ HARNESS_ANTHROPIC_API_KEY: key })).toEqual({ credential: { kind: 'api-key', value: key }, upstream: { secure: true, host: 'api.anthropic.com', port: 443 } });
+  expect(proxyOptions({ HARNESS_CLAUDE_OAUTH_TOKEN: key }).credential).toEqual({ kind: 'oauth', value: key });
+  expect(proxyOptions({ HARNESS_ANTHROPIC_API_KEY: '', HARNESS_CLAUDE_OAUTH_TOKEN: key }).credential.kind).toBe('oauth');
+  expect(() => proxyOptions({ HARNESS_ANTHROPIC_API_KEY: key, HARNESS_CLAUDE_OAUTH_TOKEN: key })).toThrow('either');
+  expect(() => proxyOptions({ HARNESS_CLAUDE_OAUTH_TOKEN: 'short' })).toThrow('key');
   expect(proxyOptions({ HARNESS_ANTHROPIC_API_KEY: key, HARNESS_PROXY_UPSTREAM: 'http://127.0.0.1:8080' }).upstream).toEqual({ secure: false, host: '127.0.0.1', port: 8080 });
   for (const upstream of ['http://example.com:80', 'https://127.0.0.1:1', 'http://127.0.0.1:0', 'http://127.0.0.1:1/x'])
     expect(() => proxyOptions({ HARNESS_ANTHROPIC_API_KEY: key, HARNESS_PROXY_UPSTREAM: upstream })).toThrow('upstream');
@@ -88,7 +103,7 @@ it('forwards allowed requests with the real key and answers refused ones itself'
     seen.push({ url: req.url, key: req.headers['x-api-key'], body }); res.writeHead(200, { 'content-type': 'application/json', connection: 'close' }); res.end('{"ok":true}'); }); });
   await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
   const key = 'sk-ant-fixture-not-a-real-key-0123456789';
-  const proxy = await startProxy({ key, upstream: { secure: false, host: '127.0.0.1', port: (upstream.address() as AddressInfo).port } });
+  const proxy = await startProxy({ credential: { kind: 'api-key', value: key }, upstream: { secure: false, host: '127.0.0.1', port: (upstream.address() as AddressInfo).port } });
   const url = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
   try {
     const ok = await fetch(`${url}/v1/messages?beta=true`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'placeholder' }, body: JSON.stringify(messages) });
