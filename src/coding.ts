@@ -14,7 +14,9 @@ export const codingRequestSchema = z.strictObject({
   baseSha: z.string().regex(/^[a-f0-9]{40}$/),
   model: z.string().regex(/^[a-zA-Z0-9._-]{1,100}$/), effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']),
   limits: z.strictObject({ timeoutMinutes: z.number().int().min(1).max(30),
-    maxFiles: z.number().int().min(1).max(100), maxPatchBytes: z.number().int().min(1024).max(5000000) })
+    maxFiles: z.number().int().min(1).max(100), maxPatchBytes: z.number().int().min(1024).max(5000000),
+    // Spend cap of the agent for this run in US dollars (Claude Code --max-budget-usd); Codex has no such limit.
+    maxCostUsd: z.number().positive().max(1000).optional() })
 }).refine(request => request.worker === 'claude' || request.effort !== 'max', { message: 'Codex has no max effort', path: ['effort'] })
   .refine(request => request.worker !== 'claude' || /^claude-/.test(request.model), { message: 'Claude models start with claude-', path: ['model'] });
 export const codingMessageSchema = z.strictObject({

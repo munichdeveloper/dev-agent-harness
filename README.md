@@ -92,7 +92,24 @@ The caller passes `anthropic-api-key`; `openai-api-key` is then not needed, and 
 - **Result**: the runner captures the stream (`--output-format stream-json --json-schema`) outside the worker's reach,
   logs only the names of the tools used, and collection validates the final structured output like the Codex message.
 
+- **Spend cap**: an optional `limits.maxCostUsd` in the request becomes `--max-budget-usd`; Claude Code then stops
+  with the result subtype `error_max_budget_usd`. Codex has no such limit.
+
 `scripts/test-claude-run.sh` runs a real Claude Code run against a stand-in API in CI, without API credentials.
+
+### Token usage
+
+Every run that got past preparation leaves `usage.json` (action output `usage`, schema `usageRecordSchema` in
+`src/usage.ts`), also when the agent failed, timed out or hit its spend cap. It is written by the runner account:
+
+- **Claude**: the credential proxy reads the `usage` the API returns in each `POST /v1/messages` response (streamed
+  or not) and keeps a running total in `proxy-usage.json`, rewritten after every response, so a killed run still
+  reports what it used. Claude Code's own result line adds its dollar estimate (`total_cost_usd`), turns, duration and
+  outcome; these are `null` when the run ended without a result line.
+- **Codex**: the last cumulative `token_count` of the worker's session log; Codex reports no dollar cost.
+
+The step logs one line `usage: worker=… model=… requests=… input=… output=… cache_read=… cache_write=… cost_usd=…
+turns=… outcome=… budget_usd=…`. The caller decides what counts as too much.
 
 For GitHub App dispatches, a reviewed caller may set `trusted-bot-users` to the
 explicit App bot login. The default is empty. Never derive this value from the

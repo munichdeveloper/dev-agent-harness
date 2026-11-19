@@ -112,6 +112,11 @@
           "type": "integer",
           "minimum": 1024,
           "maximum": 5000000
+        },
+        "maxCostUsd": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000
         }
       },
       "required": [

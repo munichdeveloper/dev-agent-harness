@@ -12,6 +12,12 @@ HOME_DIRECTORY=/home/claude-worker
 [[ "$HARNESS_LOOPBACK" == true || "$HARNESS_LOOPBACK" == false ]]
 [[ "$TARGET" == "$(realpath -e -- "$TARGET")" && "$TARGET" =~ ^[A-Za-z0-9._/-]+$ ]]
 [[ -d "$RUN_DIRECTORY" && ! -L "$RUN_DIRECTORY" ]]
+# Optional spend cap in US dollars; Claude Code stops with error_max_budget_usd when the run reaches it.
+BUDGET=()
+if [[ -n "${HARNESS_BUDGET_USD:-}" ]]; then
+  [[ "$HARNESS_BUDGET_USD" =~ ^[0-9]{1,4}(\.[0-9]{1,4})?$ ]]
+  BUDGET=(--max-budget-usd "$HARNESS_BUDGET_USD")
+fi
 if [[ -z "${HARNESS_ANTHROPIC_API_KEY:-}" ]]; then echo "The Claude worker needs the anthropic-api-key input" >&2; exit 1; fi
 
 # Installed by the runner account while it still has network; the worker only executes it.
@@ -26,7 +32,7 @@ node -e '
   require("node:fs").writeFileSync(process.argv[1], JSON.stringify(settings), { flag: "wx", mode: 0o644 });' "$RUN_DIRECTORY/claude-settings.json"
 
 # The credential proxy: runner account, 127.0.0.1, port chosen by the kernel.
-HARNESS_PROXY_PORT_FILE="$RUN_DIRECTORY/proxy.port" setsid node "$GITHUB_ACTION_PATH/dist/claude-proxy.js" \
+HARNESS_PROXY_PORT_FILE="$RUN_DIRECTORY/proxy.port" HARNESS_PROXY_USAGE_FILE="$RUN_DIRECTORY/proxy-usage.json" setsid node "$GITHUB_ACTION_PATH/dist/claude-proxy.js" \
   </dev/null >"$RUN_DIRECTORY/proxy.log" 2>&1 &
 echo "$!" > "$RUN_DIRECTORY/proxy.pid"
 unset HARNESS_ANTHROPIC_API_KEY
@@ -53,7 +59,7 @@ set +e
   ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" ANTHROPIC_API_KEY=harness-proxy-placeholder \
   DISABLE_AUTOUPDATER=1 DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
   NEXT_TELEMETRY_DISABLED=1 npm_config_update_notifier=false npm_config_offline=true \
-  "$CLAUDE" --print --model "$HARNESS_MODEL" --effort "$HARNESS_EFFORT" \
+  "$CLAUDE" --print --model "$HARNESS_MODEL" --effort "$HARNESS_EFFORT" "${BUDGET[@]}" \
     --permission-mode bypassPermissions --setting-sources user --settings "$RUN_DIRECTORY/claude-settings.json" \
     --strict-mcp-config --disallowedTools WebFetch WebSearch \
     --output-format stream-json --verbose --json-schema "$(cat "$RUN_DIRECTORY/message.schema.json")" \
