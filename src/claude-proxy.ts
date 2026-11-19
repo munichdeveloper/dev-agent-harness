@@ -44,6 +44,27 @@ export function forwardHeaders(headers: IncomingHttpHeaders, key: string, length
   return { ...result, 'x-api-key': key, 'content-length': String(length) };
 }
 
+/** Printable single-line text, bounded, for diagnostics in the job log. */
+export function logText(value: string, limit = 300): string {
+  const text = value.replace(/[^\x20-\x7e]+/g, ' ').trim();
+  return text.length > limit ? `${text.slice(0, limit)}...` : text;
+}
+
+/**
+ * One log line for an upstream answer that is not a success, so a run that stops on an API error (credit, rate limit,
+ * invalid request) says why. Only the API's error type and message are kept; they carry no credential.
+ */
+export function upstreamErrorLine(status: number, path: string, body: string): string {
+  let detail = '';
+  try {
+    const error = (JSON.parse(body) as { error?: { type?: unknown; message?: unknown } }).error;
+    if (error && typeof error === 'object') {
+      detail = [error.type, error.message].filter((x): x is string => typeof x === 'string').map(x => logText(x)).join(': ');
+    }
+  } catch { /* not JSON */ }
+  return `Upstream ${status} ${path}${detail ? `: ${detail}` : ''}`;
+}
+
 export interface ProxyOptions { key: string; upstream: { secure: boolean; host: string; port: number }; usageFile?: string }
 /** Parses the run's configuration; the upstream is the Anthropic API unless a test names a stand-in on this host's loopback. */
 export function proxyOptions(env: Record<string, string | undefined>): ProxyOptions {
@@ -90,10 +111,17 @@ export function startProxy({ key, upstream: target, usageFile }: ProxyOptions, o
           response.on('data', (chunk: Buffer) => reader.push(chunk));
           response.on('end', () => { try { record(reader); } catch { /* metering never breaks the run */ } });
         }
+        const status = response.statusCode ?? 502;
+        if (status >= 400) {
+          const path = new URL(req.url ?? '', 'http://127.0.0.1').pathname;
+          const chunks: Buffer[] = []; let size = 0;
+          response.on('data', (chunk: Buffer) => { if (size < 65536) { chunks.push(chunk); size += chunk.length; } });
+          response.on('end', () => console.log(upstreamErrorLine(status, path, Buffer.concat(chunks).toString('utf8').slice(0, 65536))));
+        }
         response.pipe(res);
       });
       upstream.on('timeout', () => upstream.destroy(new Error('Upstream timeout')));
-      upstream.on('error', () => { if (!res.headersSent) res.writeHead(502, { 'content-type': 'application/json' });
+      upstream.on('error', error => { console.log(`Upstream unavailable: ${logText(error.message)}`); if (!res.headersSent) res.writeHead(502, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: 'Upstream unavailable' } })); });
       upstream.end(body);
     });
