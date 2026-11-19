@@ -5,7 +5,8 @@
 import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
-import { writeFileSync } from 'node:fs';
+import { renameSync, writeFileSync } from 'node:fs';
+import { addResponse, emptyProxyUsage, ResponseReader, type ProxyUsage } from './usage.js';
 
 export const proxyPaths = new Set(['/v1/messages', '/v1/messages/count_tokens']);
 const forwardedHeaders = ['content-type', 'accept', 'anthropic-version', 'anthropic-beta', 'user-agent', 'x-app'];
@@ -43,18 +44,28 @@ export function forwardHeaders(headers: IncomingHttpHeaders, key: string, length
   return { ...result, 'x-api-key': key, 'content-length': String(length) };
 }
 
-export interface ProxyOptions { key: string; upstream: { secure: boolean; host: string; port: number } }
+export interface ProxyOptions { key: string; upstream: { secure: boolean; host: string; port: number }; usageFile?: string }
 /** Parses the run's configuration; the upstream is the Anthropic API unless a test names a stand-in on this host's loopback. */
 export function proxyOptions(env: Record<string, string | undefined>): ProxyOptions {
   const key = env.HARNESS_ANTHROPIC_API_KEY ?? '';
   if (!/^[\x21-\x7e]{20,300}$/.test(key)) throw new Error('Proxy key rejected');
-  if (!env.HARNESS_PROXY_UPSTREAM) return { key, upstream: { secure: true, host: 'api.anthropic.com', port: 443 } };
+  const usageFile = env.HARNESS_PROXY_USAGE_FILE ? { usageFile: env.HARNESS_PROXY_USAGE_FILE } : {};
+  if (!env.HARNESS_PROXY_UPSTREAM) return { key, upstream: { secure: true, host: 'api.anthropic.com', port: 443 }, ...usageFile };
   const local = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})$/.exec(env.HARNESS_PROXY_UPSTREAM);
   if (!local) throw new Error('Proxy upstream rejected');
-  return { key, upstream: { secure: false, host: '127.0.0.1', port: Number(local[1]) } };
+  return { key, upstream: { secure: false, host: '127.0.0.1', port: Number(local[1]) }, ...usageFile };
 }
-export function startProxy({ key, upstream: target }: ProxyOptions): Promise<Server> {
+export function startProxy({ key, upstream: target, usageFile }: ProxyOptions, onUsage?: (usage: ProxyUsage) => void): Promise<Server> {
   const send = target.secure ? httpsRequest : httpRequest;
+  // The running total of the usage the API reported, rewritten after every response so a killed run still leaves it.
+  let usage = emptyProxyUsage();
+  const record = (reader: ResponseReader) => {
+    const response = reader.result();
+    if (!response) return;
+    usage = addResponse(usage, response);
+    if (usageFile) { writeFileSync(`${usageFile}.tmp`, JSON.stringify(usage), { mode: 0o644 }); renameSync(`${usageFile}.tmp`, usageFile); }
+    onUsage?.(usage);
+  };
   const server = createServer((req, res) => {
     const chunks: Buffer[] = []; let size = 0;
     req.on('data', (chunk: Buffer) => { size += chunk.length; if (size > maxRequestBytes) { req.destroy(); return; } chunks.push(chunk); });
@@ -73,6 +84,12 @@ export function startProxy({ key, upstream: target }: ProxyOptions): Promise<Ser
           if (value !== undefined && !['connection', 'keep-alive', 'transfer-encoding'].includes(name)) headers[name] = value;
         }
         res.writeHead(response.statusCode ?? 502, headers);
+        // Billed responses only: successful Messages calls (count_tokens is free).
+        if (response.statusCode === 200 && new URL(req.url ?? '', 'http://127.0.0.1').pathname === '/v1/messages') {
+          const reader = new ResponseReader(String(response.headers['content-type'] ?? '').startsWith('text/event-stream'));
+          response.on('data', (chunk: Buffer) => reader.push(chunk));
+          response.on('end', () => { try { record(reader); } catch { /* metering never breaks the run */ } });
+        }
         response.pipe(res);
       });
       upstream.on('timeout', () => upstream.destroy(new Error('Upstream timeout')));

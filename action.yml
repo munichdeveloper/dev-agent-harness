@@ -31,6 +31,9 @@ inputs:
     required: false
     default: ''
 outputs:
+  usage:
+    description: Token usage record of the run (usage.json), written for every run that got past preparation
+    value: ${{ steps.prepare.outputs.directory }}/usage.json
   artifact:
     description: Single-run result and bounded file manifest
     value: ${{ steps.prepare.outputs.directory }}/artifact.json
@@ -129,6 +132,7 @@ runs:
         HARNESS_MODEL: ${{ steps.prepare.outputs.model }}
         HARNESS_EFFORT: ${{ steps.prepare.outputs.effort }}
         HARNESS_LOOPBACK: ${{ steps.prepare.outputs.loopback }}
+        HARNESS_BUDGET_USD: ${{ steps.prepare.outputs.budget }}
         HARNESS_ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
         CLAUDE_CODE_VERSION: '2.1.318'
       run: bash "$GITHUB_ACTION_PATH/scripts/claude-run.sh"
@@ -140,6 +144,14 @@ runs:
         HARNESS_WORKSPACE: ${{ inputs.workspace }}
         RUN_DIRECTORY: ${{ steps.prepare.outputs.directory }}
       run: bash "$GITHUB_ACTION_PATH/scripts/collect-coding.sh"
+    - name: Record token usage
+      if: always() && steps.prepare.outputs.directory != ''
+      shell: bash
+      env:
+        HARNESS_WORKER: ${{ steps.prepare.outputs.worker }}
+        HARNESS_EXECUTION_ID: ${{ inputs.execution-id }}
+        RUN_DIRECTORY: ${{ steps.prepare.outputs.directory }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/record-usage.sh" || echo "Token usage could not be recorded"
     - name: Stop per-run processes
       if: always()
       shell: bash

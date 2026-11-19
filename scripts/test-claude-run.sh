@@ -24,16 +24,18 @@ HARNESS_REQUEST="$(node --input-type=module -e '
   console.log(JSON.stringify({contractVersion:"3.0", executionId:process.env.HARNESS_EXECUTION_ID, worker:"claude",
     task:{id:"fixture:1",version:"b".repeat(64),description:"Stand-in run",acceptanceCriteria:["Collected"],contextReferences:[]},
     allowedActions:["edit_workspace","run_commands"],baseSha:process.env.BASE_SHA, model:"claude-opus-5-5",effort:"high",
-    limits:{timeoutMinutes:5,maxFiles:100,maxPatchBytes:5000000}}));')"; export HARNESS_REQUEST
+    limits:{timeoutMinutes:5,maxFiles:100,maxPatchBytes:5000000,maxCostUsd:5}}));')"; export HARNESS_REQUEST
 GITHUB_OUTPUT="$RUNNER_TEMP/prepare-output" node dist/coding-cli.js prepare
 grep -qx 'account=claude-worker' "$RUNNER_TEMP/prepare-output"
+grep -qx 'budget=5' "$RUNNER_TEMP/prepare-output"
 sudo adduser --system --home /home/claude-worker --shell /bin/bash --group claude-worker
 for directory in /home/runner /home/runner/work /home/claude-worker; do [[ -d "$directory" ]] && sudo chmod o+x "$directory"; done
 sudo chown -R claude-worker:claude-worker "$TARGET"
 chmod o+rx "$RUN_DIRECTORY"
 sudo install -d -o claude-worker -g claude-worker "$RUN_DIRECTORY/output"
-HARNESS_ANTHROPIC_API_KEY=sk-ant-fixture-not-a-real-key-0123456789 bash scripts/claude-run.sh
+HARNESS_BUDGET_USD=5 HARNESS_ANTHROPIC_API_KEY=sk-ant-fixture-not-a-real-key-0123456789 bash scripts/claude-run.sh
 bash scripts/collect-coding.sh
+HARNESS_WORKER=claude bash scripts/record-usage.sh
 bash scripts/claude-cleanup.sh
 node --input-type=module -e '
   import fs from "node:fs"; import assert from "node:assert/strict";
@@ -41,6 +43,9 @@ node --input-type=module -e '
   assert.equal(value.result.status, "success"); assert.equal(value.result.summary, "Stand-in run finished");
   const files = Object.fromEntries(value.changes.map(c => [c.path, Buffer.from(c.content, "base64").toString()]));
   assert.equal(files["claude.txt"], "claude\n"); assert.equal(files["network.txt"], "closed\n");
+  const usage = JSON.parse(fs.readFileSync(process.env.RUN_DIRECTORY + "/usage.json"));
+  assert.equal(usage.source, "proxy"); assert.equal(usage.requests, 3); assert.equal(usage.tokens.output, 3);
+  assert.equal(usage.outcome, "success"); assert.equal(usage.budgetUsd, 5); assert.equal(usage.budgetReached, false);
   const requests = fs.readFileSync(process.argv[1], "utf8").trim().split("\n").map(l => JSON.parse(l));
   assert.equal(requests.length, 3);
   for (const r of requests) { assert.equal(r.key, "sk-ant-fixture-not-a-real-key-0123456789"); assert.equal(r.authorization, null);
