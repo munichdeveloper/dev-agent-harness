@@ -15,7 +15,11 @@ inputs:
     required: false
     default: ''
   anthropic-api-key:
-    description: Anthropic credential supplied only to the harness credential proxy; required when the request's worker is claude
+    description: Anthropic credential supplied only to the harness credential proxy; the claude worker needs this or claude-oauth-token
+    required: false
+    default: ''
+  claude-oauth-token:
+    description: OAuth token of a Claude subscription (claude setup-token), supplied only to the harness credential proxy instead of anthropic-api-key
     required: false
     default: ''
   trusted-bot-users:
@@ -61,9 +65,11 @@ runs:
         WORKER: ${{ steps.prepare.outputs.worker }}
         HAS_OPENAI: ${{ inputs.openai-api-key != '' }}
         HAS_ANTHROPIC: ${{ inputs.anthropic-api-key != '' }}
+        HAS_CLAUDE_OAUTH: ${{ inputs.claude-oauth-token != '' }}
       run: |
         if [[ "$WORKER" == codex && "$HAS_OPENAI" != true ]]; then echo "The codex worker needs openai-api-key" >&2; exit 1; fi
-        if [[ "$WORKER" == claude && "$HAS_ANTHROPIC" != true ]]; then echo "The claude worker needs anthropic-api-key" >&2; exit 1; fi
+        if [[ "$WORKER" == claude && "$HAS_ANTHROPIC" != true && "$HAS_CLAUDE_OAUTH" != true ]]; then echo "The claude worker needs anthropic-api-key or claude-oauth-token" >&2; exit 1; fi
+        if [[ "$WORKER" == claude && "$HAS_ANTHROPIC" == true && "$HAS_CLAUDE_OAUTH" == true ]]; then echo "Pass either anthropic-api-key or claude-oauth-token, not both" >&2; exit 1; fi
     - name: Create isolated coding account
       id: account
       shell: bash
@@ -134,6 +140,7 @@ runs:
         HARNESS_LOOPBACK: ${{ steps.prepare.outputs.loopback }}
         HARNESS_BUDGET_USD: ${{ steps.prepare.outputs.budget }}
         HARNESS_ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        HARNESS_CLAUDE_OAUTH_TOKEN: ${{ inputs.claude-oauth-token }}
         CLAUDE_CODE_VERSION: '2.1.318'
       run: bash "$GITHUB_ACTION_PATH/scripts/claude-run.sh"
     - name: Collect bounded result

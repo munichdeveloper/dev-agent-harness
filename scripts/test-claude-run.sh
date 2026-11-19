@@ -33,7 +33,13 @@ for directory in /home/runner /home/runner/work /home/claude-worker; do [[ -d "$
 sudo chown -R claude-worker:claude-worker "$TARGET"
 chmod o+rx "$RUN_DIRECTORY"
 sudo install -d -o claude-worker -g claude-worker "$RUN_DIRECTORY/output"
-HARNESS_BUDGET_USD=5 HARNESS_ANTHROPIC_API_KEY=sk-ant-fixture-not-a-real-key-0123456789 bash scripts/claude-run.sh
+# HARNESS_TEST_CREDENTIAL=oauth: the same run with a subscription's OAuth token instead of an API key.
+SECRET=sk-ant-fixture-not-a-real-key-0123456789
+if [[ "${HARNESS_TEST_CREDENTIAL:-api-key}" == oauth ]]; then
+  HARNESS_BUDGET_USD=5 HARNESS_CLAUDE_OAUTH_TOKEN="$SECRET" bash scripts/claude-run.sh
+else
+  HARNESS_BUDGET_USD=5 HARNESS_ANTHROPIC_API_KEY="$SECRET" bash scripts/claude-run.sh
+fi
 bash scripts/collect-coding.sh
 HARNESS_WORKER=claude bash scripts/record-usage.sh
 bash scripts/claude-cleanup.sh
@@ -48,8 +54,11 @@ node --input-type=module -e '
   assert.equal(usage.outcome, "success"); assert.equal(usage.budgetUsd, 5); assert.equal(usage.budgetReached, false);
   const requests = fs.readFileSync(process.argv[1], "utf8").trim().split("\n").map(l => JSON.parse(l));
   assert.equal(requests.length, 3);
-  for (const r of requests) { assert.equal(r.key, "sk-ant-fixture-not-a-real-key-0123456789"); assert.equal(r.authorization, null);
-    assert(!r.tools.includes("WebFetch") && !r.tools.includes("WebSearch")); }' "$STAND_IN/requests.jsonl"
+  const oauth = process.argv[2] === "oauth", secret = "sk-ant-fixture-not-a-real-key-0123456789";
+  for (const r of requests) {
+    if (oauth) { assert.equal(r.key, undefined); assert.equal(r.authorization, "Bearer " + secret); assert(r.beta.split(",").includes("oauth-2025-04-20")); }
+    else { assert.equal(r.key, secret); assert.equal(r.authorization, null); }
+    assert(!r.tools.includes("WebFetch") && !r.tools.includes("WebSearch")); }' "$STAND_IN/requests.jsonl" "${HARNESS_TEST_CREDENTIAL:-api-key}"
 test ! -e /tmp/claude-hook-ran
 test ! -e /tmp/claude-mcp-ran
 if sudo iptables -w -S HARNESS_CLAUDE 2>/dev/null; then echo "Network chain left behind" >&2; exit 1; fi

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# One Claude Code run as the isolated claude-worker account. The Anthropic key stays with a credential proxy of the
-# runner account (src/claude-proxy.ts); the account may reach that proxy on 127.0.0.1 and, with `loopback`, its own
+# One Claude Code run as the isolated claude-worker account. The credential (an Anthropic API key, or the OAuth token
+# of a Claude subscription) stays with a credential proxy of the runner account (src/claude-proxy.ts); the account may reach that proxy on 127.0.0.1 and, with `loopback`, its own
 # loopback servers, and nothing else: no DNS, no other host, no IPv6.
 set -euo pipefail
 ACCOUNT=claude-worker
@@ -18,7 +18,18 @@ if [[ -n "${HARNESS_BUDGET_USD:-}" ]]; then
   [[ "$HARNESS_BUDGET_USD" =~ ^[0-9]{1,4}(\.[0-9]{1,4})?$ ]]
   BUDGET=(--max-budget-usd "$HARNESS_BUDGET_USD")
 fi
-if [[ -z "${HARNESS_ANTHROPIC_API_KEY:-}" ]]; then echo "The Claude worker needs the anthropic-api-key input" >&2; exit 1; fi
+# Exactly one credential. With the subscription's OAuth token Claude Code runs in OAuth mode against the proxy, which
+# swaps the placeholder bearer token for the real one.
+if [[ -n "${HARNESS_ANTHROPIC_API_KEY:-}" && -n "${HARNESS_CLAUDE_OAUTH_TOKEN:-}" ]]; then echo "Pass either anthropic-api-key or claude-oauth-token, not both" >&2; exit 1; fi
+if [[ -n "${HARNESS_CLAUDE_OAUTH_TOKEN:-}" ]]; then
+  CREDENTIAL=(CLAUDE_CODE_OAUTH_TOKEN=harness-proxy-placeholder)
+  echo "Credential: Claude subscription (OAuth token)"
+elif [[ -n "${HARNESS_ANTHROPIC_API_KEY:-}" ]]; then
+  CREDENTIAL=(ANTHROPIC_API_KEY=harness-proxy-placeholder)
+  echo "Credential: Anthropic API key"
+else
+  echo "The Claude worker needs the anthropic-api-key or the claude-oauth-token input" >&2; exit 1
+fi
 
 # Installed by the runner account while it still has network; the worker only executes it.
 npm install -g --no-audit --no-fund "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
@@ -35,7 +46,7 @@ node -e '
 HARNESS_PROXY_PORT_FILE="$RUN_DIRECTORY/proxy.port" HARNESS_PROXY_USAGE_FILE="$RUN_DIRECTORY/proxy-usage.json" setsid node "$GITHUB_ACTION_PATH/dist/claude-proxy.js" \
   </dev/null >"$RUN_DIRECTORY/proxy.log" 2>&1 &
 echo "$!" > "$RUN_DIRECTORY/proxy.pid"
-unset HARNESS_ANTHROPIC_API_KEY
+unset HARNESS_ANTHROPIC_API_KEY HARNESS_CLAUDE_OAUTH_TOKEN
 for _ in $(seq 1 50); do [[ -s "$RUN_DIRECTORY/proxy.port" ]] && break; sleep 0.2; done
 PORT="$(tr -d '\n' < "$RUN_DIRECTORY/proxy.port")"
 [[ "$PORT" =~ ^[1-9][0-9]{0,4}$ ]]
@@ -56,7 +67,7 @@ done
 STREAM="$RUN_DIRECTORY/claude-stream.jsonl"
 set +e
 (cd "$TARGET" && worker \
-  ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" ANTHROPIC_API_KEY=harness-proxy-placeholder \
+  ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" "${CREDENTIAL[@]}" \
   DISABLE_AUTOUPDATER=1 DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
   NEXT_TELEMETRY_DISABLED=1 npm_config_update_notifier=false npm_config_offline=true \
   "$CLAUDE" --print --model "$HARNESS_MODEL" --effort "$HARNESS_EFFORT" "${BUDGET[@]}" \
