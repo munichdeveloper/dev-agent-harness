@@ -70,6 +70,12 @@ runs:
         if [[ "$WORKER" == codex && "$HAS_OPENAI" != true ]]; then echo "The codex worker needs openai-api-key" >&2; exit 1; fi
         if [[ "$WORKER" == claude && "$HAS_ANTHROPIC" != true && "$HAS_CLAUDE_OAUTH" != true ]]; then echo "The claude worker needs anthropic-api-key or claude-oauth-token" >&2; exit 1; fi
         if [[ "$WORKER" == claude && "$HAS_ANTHROPIC" == true && "$HAS_CLAUDE_OAUTH" == true ]]; then echo "Pass either anthropic-api-key or claude-oauth-token, not both" >&2; exit 1; fi
+    - name: Remember the npm manifest before the agent
+      shell: bash
+      env:
+        HARNESS_WORKSPACE: ${{ inputs.workspace }}
+        RUN_DIRECTORY: ${{ steps.prepare.outputs.directory }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/npm-manifest-snapshot.sh"
     - name: Create isolated coding account
       id: account
       shell: bash
@@ -143,6 +149,13 @@ runs:
         HARNESS_CLAUDE_OAUTH_TOKEN: ${{ inputs.claude-oauth-token }}
         CLAUDE_CODE_VERSION: '2.1.318'
       run: bash "$GITHUB_ACTION_PATH/scripts/claude-run.sh"
+    - name: Resolve package-lock.json after a dependency change
+      shell: bash
+      env:
+        HARNESS_ACCOUNT: ${{ steps.prepare.outputs.account }}
+        HARNESS_WORKSPACE: ${{ inputs.workspace }}
+        RUN_DIRECTORY: ${{ steps.prepare.outputs.directory }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/refresh-lockfile.sh"
     - name: Collect bounded result
       shell: bash
       env:

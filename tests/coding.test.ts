@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { afterEach, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { browserCacheDirectory, codingPrompt, loopbackSentence, codingRequestSchema, collectCodingArtifact, validChangePath } from '../src/coding.js';
+import { browserCacheDirectory, codingPrompt, dependencySentence, loopbackSentence, codingRequestSchema, collectCodingArtifact, validChangePath } from '../src/coding.js';
 
 const request = { contractVersion: '3.0', executionId: 'a'.repeat(32), worker: 'codex',
   task: { id: 'opaque:task-1', version: 'b'.repeat(64), description: 'Fix the bug', acceptanceCriteria: ['Tests pass'], contextReferences: [] },
@@ -26,6 +26,8 @@ it('requires a bounded single-run capability envelope and builds a data-only pro
   expect(codingRequestSchema.safeParse({ ...request, allowedActions: [] }).success).toBe(false);
   expect(codingRequestSchema.safeParse({ ...request, limits: { ...request.limits, timeoutMinutes: 31 } }).success).toBe(false);
   expect(codingPrompt(request)).toContain('Read and follow AGENTS.md');
+  expect(codingPrompt(request)).toContain(dependencySentence);
+  expect(dependencySentence).toContain('add it to package.json and leave package-lock.json alone');
   expect(codingPrompt(request)).toContain(JSON.stringify(request.task, null, 2));
 });
 it('explains caller context entries without changing the contract and mentions loopback only when enabled', () => {
