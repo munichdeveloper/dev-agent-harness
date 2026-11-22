@@ -23,6 +23,8 @@ jobs:
       - run: npm run test:coverage
       - name: Exercise restricted Linux artifact collection without API credentials
         run: bash scripts/test-coding-account.sh
+      - name: Exercise the lockfile resolution after a dependency change without API credentials
+        run: bash scripts/test-refresh-lockfile.sh
       - name: Exercise the untrusted checkout marking of the default profile without API credentials
         run: bash scripts/test-coding-home.sh
       - name: Verify official shared proxy-home setup on the pre-seeded default home without sending an API request
