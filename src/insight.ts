@@ -9,6 +9,8 @@ import { z } from 'zod';
 const count = z.number().int().min(0).max(1e12);
 export const maxTraceEntries = 1000;
 export const maxDiffFiles = 200;
+/** Serialized size the insight may take; the Software Factory broker reads usage.json up to 300 kB. */
+export const maxInsightBytes = 150000;
 const pathPattern = /^[A-Za-z0-9._@+/-]{1,300}$/;
 
 export const traceEntrySchema = z.strictObject({
@@ -131,4 +133,15 @@ export function newFileLines(bytes: Buffer): number | null {
 export function boundedDiff(files: DiffFile[]): Pick<Insight, 'diff' | 'diffTruncated'> {
   const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
   return { diff: sorted.slice(0, maxDiffFiles), diffTruncated: sorted.length > maxDiffFiles };
+}
+
+/** Keeps the insight within maxInsightBytes by cutting the trace (and then the per-turn counts) from the end. */
+export function fitInsight(insight: Insight): Insight {
+  let fitted = insight;
+  while (JSON.stringify(fitted).length > maxInsightBytes && (fitted.trace.length > 0 || fitted.outputTokensPerTurn.length > 0)) {
+    fitted = fitted.trace.length > 0
+      ? { ...fitted, trace: fitted.trace.slice(0, Math.floor(fitted.trace.length / 2)), traceTruncated: true }
+      : { ...fitted, outputTokensPerTurn: fitted.outputTokensPerTurn.slice(0, Math.floor(fitted.outputTokensPerTurn.length / 2)) };
+  }
+  return fitted;
 }

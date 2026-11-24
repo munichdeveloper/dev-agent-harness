@@ -2,7 +2,7 @@ import { appendFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import { browserCacheDirectory, claudeMessage, codingMessageSchema, codingPrompt, codingRequestSchema, codingWorkers, collectCodingArtifact, diffStat } from './coding.js';
-import { claudeTrace, insightSchema, type Insight } from './insight.js';
+import { claudeTrace, fitInsight, insightSchema, type Insight } from './insight.js';
 import { rejectionReason } from './rejection.js';
 import { claudeOutcome, codexSessionTokens, proxyUsageSchema, usageRecordSchema } from './usage.js';
 
@@ -27,7 +27,7 @@ async function runInsight(directory: string, worker: 'claude' | 'codex'): Promis
     if (parsed?.success) diff = parsed.data;
   } catch { /* malformed: size unknown */ }
   const insight = insightSchema.safeParse({ ...trace, ...diff });
-  return insight.success ? insight.data : null;
+  return insight.success ? fitInsight(insight.data) : null;
 }
 
 async function main(): Promise<void> {

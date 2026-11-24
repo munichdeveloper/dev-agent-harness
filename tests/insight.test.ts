@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { diffStat } from '../src/coding.js';
-import { boundedDiff, claudeTrace, commandWord, insightSchema, maxDiffFiles, maxTraceEntries, newFileLines, numstat, toolPath } from '../src/insight.js';
+import { boundedDiff, claudeTrace, commandWord, fitInsight, insightSchema, maxInsightBytes, maxDiffFiles, maxTraceEntries, newFileLines, numstat, toolPath } from '../src/insight.js';
 
 const assistant = (usage: object, ...blocks: object[]) => JSON.stringify({ type: 'assistant', message: { content: blocks, usage } });
 const toolUse = (id: string, name: string, input: object) => ({ type: 'tool_use', id, name, input });
@@ -100,4 +100,14 @@ it('adds the insight to the usage record of a Claude run', async () => {
   await writeFile(join(directory, 'diffstat.json'), '{"diff":"nope"}');
   execFileSync('node', ['dist/coding-cli.js', 'usage'], { env });
   expect(JSON.parse(await readFile(join(directory, 'usage.json'), 'utf8')).insight).toMatchObject({ diff: null, trace: [{ tool: 'Read' }] });
+});
+
+it('keeps the insight within its byte budget', () => {
+  const long = 'd/'.repeat(140) + 'x.ts';
+  const trace = Array.from({ length: maxTraceEntries }, (_, i) => ({ turn: i, tool: 'Read', target: long, error: false }));
+  const fitted = fitInsight({ trace, traceTruncated: false, firstRequestInputTokens: 1, outputTokensPerTurn: [1, 2], diff: null, diffTruncated: false });
+  expect(JSON.stringify(fitted).length).toBeLessThanOrEqual(maxInsightBytes);
+  expect(fitted.traceTruncated).toBe(true);
+  expect(fitted.trace.length).toBeGreaterThan(100);
+  expect(fitted.trace[0]).toEqual(trace[0]);
 });

@@ -121,7 +121,7 @@ The optional `insight` field (`src/insight.ts`) says what the run did, for the S
 the tool trace in order (tool name, workspace-relative file or the first word of a shell command, whether the result
 was an error; at most 1000 entries), the input tokens of the first request (the fixed context every request carries),
 the output tokens per assistant message, and the change size (added/removed lines per file against the base, untracked
-files counted as new; at most 200 files). Tool inputs and outputs, command arguments and file contents never enter it.
+files counted as new; at most 200 files). The whole field stays under 150 kB: a longer trace is cut from the end. Tool inputs and outputs, command arguments and file contents never enter it.
 The trace is read from Claude Code's stream by the runner; Codex runs have an empty trace. The change size is measured
 in the collection step as the worker account and copied out of its reach.
 
