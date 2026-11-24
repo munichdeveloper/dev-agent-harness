@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, resolve, sep } from 'node:path';
 import { requestSchema, resultSchema } from './contract.js';
+import { boundedDiff, newFileLines, numstat, type Insight } from './insight.js';
 
 /** The coding agents this Action can run; each has its own isolated account and credential. */
 export const codingWorkers = { codex: { account: 'codex-worker' }, claude: { account: 'claude-worker' } } as const;
@@ -68,6 +69,26 @@ export async function browserCacheDirectory(path: string, roots: (string | undef
 
 const git = (cwd: string, args: string[]) => execFileSync('git', ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null',
   '-c', `safe.directory=${cwd}`, ...args], { cwd, encoding: 'utf8', maxBuffer: 1000000, timeout: 10000 });
+
+/**
+ * Size of the change against the base: added and removed lines per file, for the cost evaluation. Runs where the
+ * artifact is collected (as the worker account, git filters and diff drivers off); untracked files count as new.
+ */
+export async function diffStat(baseSha: string, directory: string): Promise<Pick<Insight, 'diff' | 'diffTruncated'>> {
+  const cwd = await realpath(directory);
+  const files = numstat(git(cwd, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--numstat', '-z', baseSha, '--']));
+  const untracked = git(cwd, ['ls-files', '--others', '--exclude-standard', '-z']).split('\0').filter(Boolean);
+  for (const path of untracked.slice(0, 500)) {
+    if (!validChangePath(path)) continue;
+    let added: number | null = null;
+    try {
+      const stat = await lstat(resolve(cwd, path));
+      if (stat.isFile() && stat.size <= 10000000) added = newFileLines(await readFile(resolve(cwd, path)));
+    } catch { /* gone or unreadable: size unknown */ }
+    files.push({ path: path.slice(0, 500), added, removed: 0 });
+  }
+  return boundedDiff(files);
+}
 
 // Accept only ordinary relative paths and regular files, including additions/deletions.
 export function validChangePath(path: string): boolean {

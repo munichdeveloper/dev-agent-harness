@@ -115,7 +115,15 @@ Every run that got past preparation leaves `usage.json` (action output `usage`, 
 - **Codex**: the last cumulative `token_count` of the worker's session log; Codex reports no dollar cost.
 
 The step logs one line `usage: worker=… model=… requests=… input=… output=… cache_read=… cache_write=… cost_usd=…
-turns=… outcome=… budget_usd=…`. The caller decides what counts as too much.
+turns=… outcome=… budget_usd=… trace=… first_request_input=… diff_files=…`. The caller decides what counts as too much.
+
+The optional `insight` field (`src/insight.ts`) says what the run did, for the Software Factory's cost evaluation:
+the tool trace in order (tool name, workspace-relative file or the first word of a shell command, whether the result
+was an error; at most 1000 entries), the input tokens of the first request (the fixed context every request carries),
+the output tokens per assistant message, and the change size (added/removed lines per file against the base, untracked
+files counted as new; at most 200 files). The whole field stays under 150 kB: a longer trace is cut from the end. Tool inputs and outputs, command arguments and file contents never enter it.
+The trace is read from Claude Code's stream by the runner; Codex runs have an empty trace. The change size is measured
+in the collection step as the worker account and copied out of its reach.
 
 For GitHub App dispatches, a reviewed caller may set `trusted-bot-users` to the
 explicit App bot login. The default is empty. Never derive this value from the

@@ -170,6 +170,7 @@ runs:
       env:
         HARNESS_WORKER: ${{ steps.prepare.outputs.worker }}
         HARNESS_EXECUTION_ID: ${{ inputs.execution-id }}
+        HARNESS_WORKSPACE: ${{ inputs.workspace }}
         RUN_DIRECTORY: ${{ steps.prepare.outputs.directory }}
       run: bash "$GITHUB_ACTION_PATH/scripts/record-usage.sh" || echo "Token usage could not be recorded"
     - name: Stop per-run processes
