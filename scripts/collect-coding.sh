@@ -13,3 +13,7 @@ sudo pkill -KILL -u "$ACCOUNT" || true
 [[ -f "$RUN_DIRECTORY/output/artifact.json" && ! -L "$RUN_DIRECTORY/output/artifact.json" ]]
 [[ "$(wc -c < "$RUN_DIRECTORY/output/artifact.json")" -le 7000000 ]]
 cp "$RUN_DIRECTORY/output/artifact.json" "$RUN_DIRECTORY/artifact.json"
+# Change size for the cost evaluation (best effort): copied out of the worker's reach like the artifact.
+if [[ -f "$RUN_DIRECTORY/output/diffstat.json" && ! -L "$RUN_DIRECTORY/output/diffstat.json" && "$(wc -c < "$RUN_DIRECTORY/output/diffstat.json")" -le 1000000 ]]; then
+  cp "$RUN_DIRECTORY/output/diffstat.json" "$RUN_DIRECTORY/diffstat.json"
+fi

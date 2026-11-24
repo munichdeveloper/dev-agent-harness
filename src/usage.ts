@@ -3,6 +3,7 @@
 // The record is written for every run, also for failed, timed-out or budget-stopped ones, so the caller can see what
 // a run cost even when it produced nothing.
 import { z } from 'zod';
+import { insightSchema } from './insight.js';
 
 const count = z.number().int().min(0).max(1e12);
 export const tokensSchema = z.strictObject({ input: count, output: count, cacheRead: count, cacheWrite: count });
@@ -24,7 +25,10 @@ export const usageRecordSchema = z.strictObject({
   // How the agent ended: Claude Code's result subtype (e.g. success, error_max_turns, error_max_budget_usd), or null
   // when it was killed before it could report (timeout, crash).
   outcome: z.string().regex(/^[a-z_]{1,60}$/).nullable(),
-  budgetUsd: z.number().positive().max(1000).nullable(), budgetReached: z.boolean()
+  budgetUsd: z.number().positive().max(1000).nullable(), budgetReached: z.boolean(),
+  // What the run did (tool trace without inputs or outputs, fixed context, change size), for the cost evaluation of the
+  // Software Factory. Optional: older brokers and records without it stay valid.
+  insight: insightSchema.optional()
 });
 export type UsageRecord = z.infer<typeof usageRecordSchema>;
 
